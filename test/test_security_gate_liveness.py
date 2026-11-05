@@ -756,7 +756,14 @@ def _url_payload_command(n: int) -> str:
 #: ``deny_gate`` forwards it behind a length-preserving guard. No matcher, rule,
 #: threshold or verdict moved -- the decision is byte-identical and the change is
 #: diagnostics-only. Re-measured.
-_PACKAGE_LINE_BUDGET = 35_311
+#: Raised by 440, from 35,311, for ``mcp_body_fields``: the owner's list of
+#: third-party MCP message-body fields, judged by the document detectors (the full
+#: credential test, with the code-text pass's ``data:`` payload exemption and pass
+#: 3's document-link, SRI-digest and ELB target-group spans on the entropy guess; a field named for something a
+#: server runs is never a row) under the 256 KiB source-body ceiling, the size refusal's Settings
+#: link, plus its keystone leaf in ``paths_lists``. Nothing is relaxed for any other
+#: field; every non-body argument keeps the full scan. Re-measured.
+_PACKAGE_LINE_BUDGET = 35_751
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
