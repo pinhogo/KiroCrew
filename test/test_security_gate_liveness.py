@@ -772,7 +772,11 @@ def _url_payload_command(n: int) -> str:
 #: holdback floor, and drops a unit decided while still running, which does
 #: nothing while the switch is off. The detectors live in a subpackage this
 #: budget does not count. Re-measured.
-_PACKAGE_LINE_BUDGET = 35_533
+#: Raised by 119, from 35,533, for ``shell_commands.xargs_pipelines`` and
+#: ``xargs_handed_on``: each pipeline that feeds ``xargs`` is also read as a line of its
+#: own, from the words its first command hands on, so a command chained before it no
+#: longer changes what the xargs rebuild sees. Deny-only: no allow widened. Re-measured.
+_PACKAGE_LINE_BUDGET = 35_652
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
