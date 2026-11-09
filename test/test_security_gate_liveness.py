@@ -763,7 +763,10 @@ def _url_payload_command(n: int) -> str:
 #: Raised by 38, from 35,373, for ``shell_commands.pipelines`` and the rm floor reading
 #: each pipeline's ``echo`` / ``printf`` stages and shells in ``_command_tokens``. It only
 #: adds refusals. Re-measured.
-_PACKAGE_LINE_BUDGET = 35_411
+#: Raised by 2, from 35,411, for the ``mcp-resource-subscriptions`` leaf in
+#: ``paths_lists`` (the resource-subscription holder store): the leaf and its
+#: one-line reason. No rule changed.
+_PACKAGE_LINE_BUDGET = 35_413
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
