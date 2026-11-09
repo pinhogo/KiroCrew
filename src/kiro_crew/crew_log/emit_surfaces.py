@@ -9,17 +9,27 @@ asks for one of them.
 
 from __future__ import annotations
 
+import functools
 import json
 import threading
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from kiro_crew.crew_log.emit_runtime import _handle, _submit, _write, live_turn
+from kiro_crew.crew_log.emit_runtime import _hand_over, _handle, _report, _submit, _write, live_turn
 from kiro_crew.crew_log.emit_state import _SRC_GATEWAY, _note_eager, enabled
 from kiro_crew.crew_log.emit_text import _clip, _entry_line_fits, _safe_text
 
+if TYPE_CHECKING:
+    from kiro_crew.crew_log.late_writes import Receipt
 
-def on_ledger_recorded(session_id: str, data: dict[str, Any]) -> None:
+
+def on_ledger_recorded(
+    session_id: str,
+    data: dict[str, Any],
+    *,
+    slot: str = "",
+    publish: "Callable[[str], None] | None" = None,
+) -> "Receipt":
     """Append ONE ``ledger/recorded`` entry -- a session's own durable work state.
 
     The write half of the session ledger. Every field the caller set rides on this
@@ -34,11 +44,95 @@ def on_ledger_recorded(session_id: str, data: dict[str, Any]) -> None:
     exactly the sessions that are running. Going through the writer also keeps this
     entry ordered against the turn it was recorded inside.
 
-    The caller is the one that establishes the session has a crew log to write to;
-    this is the ordinary ``_write``, so a session without one is a policy no-op
-    here and the refusal belongs where a user can be told about it.
+    With *slot* (the unit header's slot) the job decides on that slot's lane where the
+    entry goes and publishes it there (:func:`_record_on_slot_lane`); without one it is
+    appended to *session_id* as it is. The caller is the one that establishes the
+    session has a crew log to write to; a session without one settles the receipt as
+    not landed, and the refusal belongs where a user can be told about it.
     """
-    _write(session_id, "ledger/recorded", data, src=_SRC_GATEWAY)
+    from kiro_crew.session_ledger_layout import _FOLD_NAME
+
+    return _record_on_slot_lane(
+        session_id, "ledger/recorded", data, slot=slot, fold=_FOLD_NAME, publish=publish
+    )
+
+
+def _record_on_slot_lane(
+    session_id: str,
+    entry_type: str,
+    data: dict[str, Any],
+    *,
+    slot: str,
+    fold: str,
+    publish: "Callable[[str], None] | None",
+) -> "Receipt":
+    """Append one ledger entry for *slot* in ONE writer job, and answer with its receipt.
+
+    The job runs in *session_id*'s bucket, and the writer holds one slot's units to one
+    lane (``writer_groups``), so the successor's carry commit (``emit_session._write_carries``)
+    runs wholly before or wholly after it. In the job: when a later unit of *slot* already
+    carried *fold* (:func:`~kiro_crew.crew_log.late_writes.carrier_after`), the same job
+    is handed to the slot's newest unit, whose own bucket runs it and asks again;
+    otherwise the entry is appended here, *publish* is told the unit it landed in (the
+    caller's unit-order note), and the receipt is settled with that unit and the entry's
+    seq. All three on the lane, so a carry cannot land between the answer and the append,
+    nor between the append and the order it publishes.
+
+    A refusal settles the receipt as not landed. A job retained after a failed attempt
+    is tried again from the start, so it asks again. A job handed to a newer unit and
+    lost there leaves the receipt unsettled, which reads as not landed.
+    """
+    from kiro_crew.crew_log import late_writes, writer_groups
+
+    receipt = late_writes.Receipt(session_id)
+    if not session_id or not enabled():
+        receipt.settle(session_id, 0, landed=False)
+        return receipt
+    if slot and not writer_groups.known(session_id):
+        # Before the hand-over, so the writer holds this unit to its slot's lane for the
+        # job's first claim (a unit this process did not open has no key otherwise).
+        writer_groups.note_unit_slot(session_id, slot)
+
+    def _land(unit: str) -> None:
+        if slot:
+            newer = late_writes.carrier_after(slot, unit, fold)
+            if newer and newer != unit:
+                from kiro_crew.crew_log.writer import WriteJob
+
+                if not writer_groups.known(newer):
+                    writer_groups.note_unit_slot(newer, slot)
+                _hand_over(
+                    newer,
+                    WriteJob.follow_on(
+                        functools.partial(_land, newer),
+                        f"appending {entry_type} under the unit its slot moved to",
+                    ),
+                )
+                return
+        log = _handle(unit)
+        if log is None:
+            receipt.settle(unit, 0, landed=False)
+            return
+        entry = log.append(entry_type, data, src=_SRC_GATEWAY)
+        del log
+        if publish is not None:
+            try:
+                publish(unit)
+            except Exception as exc:
+                # The entry is in the file: a raise here would have the writer retry the
+                # job and append it twice. The order note is best-effort by its own rule.
+                _report(f"publishing the unit order for {entry_type}", exc, op="unit-order")
+        receipt.settle(unit, int(entry.seq), landed=True)
+        # After the order is published: the fold this wake triggers reads that order.
+        _note_eager(entry, entry_type, unit, data)
+
+    _submit(
+        functools.partial(_land, session_id),
+        f"appending {entry_type}",
+        session_id,
+        on_permanent_drop=lambda: receipt.settle(session_id, 0, landed=False),
+    )
+    return receipt
 
 
 def ledger_entry_fits(data: dict[str, Any]) -> bool:
@@ -130,7 +224,14 @@ def on_object_observed(
     _write(session_id, "object/observed", data, src=_SRC_GATEWAY)
 
 
-def on_radar_recorded(session_id: str, data: dict[str, Any]) -> None:
+def on_radar_recorded(
+    session_id: str,
+    data: dict[str, Any],
+    *,
+    slot: str = "",
+    fold: str = "",
+    publish: "Callable[[str], None] | None" = None,
+) -> "Receipt":
     """Append ONE ``radar/recorded`` entry -- an Issue Radar crew's own ledger update.
 
     The write half of the crew ledger. Every field the caller set rides on this single
@@ -146,11 +247,14 @@ def on_radar_recorded(session_id: str, data: dict[str, Any]) -> None:
     working. Going through the writer also keeps the entry ordered against the turn
     it was recorded inside.
 
-    The caller establishes that the crew's session has a crew log to write to; this
-    is the ordinary ``_write``, so a session without one is a policy no-op here and the
-    refusal belongs where the crew can be told about it.
+    With the crew's *slot* and its *fold*, the job decides on the slot's lane where the
+    entry goes and publishes it there, as :func:`on_ledger_recorded` does. The caller
+    establishes that the crew's session has a crew log to write to; a session without
+    one settles the receipt as not landed.
     """
-    _write(session_id, "radar/recorded", data, src=_SRC_GATEWAY)
+    return _record_on_slot_lane(
+        session_id, "radar/recorded", data, slot=slot, fold=fold, publish=publish
+    )
 
 
 def radar_entry_fits(data: dict[str, Any]) -> bool:
