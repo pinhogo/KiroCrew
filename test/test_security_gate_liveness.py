@@ -772,7 +772,11 @@ def _url_payload_command(n: int) -> str:
 #: holdback floor, and drops a unit decided while still running, which does
 #: nothing while the switch is off. The detectors live in a subpackage this
 #: budget does not count. Re-measured.
-_PACKAGE_LINE_BUDGET = 35_533
+#: Raised by 40, from 35,533, for the deny view's Windows program-suffix view (at the
+#: program word, past ``sudo``-style wrappers and ``cmd /c``), the in-word ``^``/backtick
+#: view and the ``aws.exe`` spelling in the s3 download reader. Views only add matches;
+#: nothing is relaxed. Re-measured.
+_PACKAGE_LINE_BUDGET = 35_573
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
