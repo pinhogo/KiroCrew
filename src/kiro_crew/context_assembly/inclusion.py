@@ -195,6 +195,7 @@ def steering_resources_part(
     essentials: str,
     context_groups: frozenset[str] | None,
     project: str | None = None,
+    steering_off: Collection[str] = frozenset(),
 ) -> str:
     """The agent config's ``file://`` steering text for this session, or ``""``.
 
@@ -211,7 +212,9 @@ def steering_resources_part(
     context group decides whether steering is in scope at all. *project* is the
     session's project: relative entries anchor there, as kiro-cli anchors them
     at its working directory, and it adds the project's steering and
-    ``AGENTS.md`` that kiro-cli inherits.
+    ``AGENTS.md`` that kiro-cli inherits. *steering_off* holds the resolved paths
+    this chat switched off; it is passed on only when there are any, so a chat
+    with none takes exactly the old call.
     """
     from kiro_crew import context as ctx  # circular import: the facade imports this owner
     from kiro_crew.agent_files import is_kirocrew_default_agent
@@ -222,4 +225,6 @@ def steering_resources_part(
         return ""
     if not _group_included(context_groups, CONTEXT_GROUP_PROJECT):
         return ""
+    if steering_off:
+        return ctx._load_steering_resources(project, excluded=steering_off)
     return ctx._load_steering_resources(project)

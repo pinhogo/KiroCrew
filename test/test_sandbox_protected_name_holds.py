@@ -484,7 +484,14 @@ class TestLeafOnlyPopulationIsRecorded:
     #: next start, which the boot-time apply installs on. Sealed read-only so an agent
     #: cannot arm one. It sits at the data-home root beside writable siblings and is
     #: published by a rename, so leaf-only is the only hold, as for ``computer_use.json``.
-    EXPECTED: dict[str, int] = {"standard": 330, "cc": 337, "strict": 338}
+    #:
+    #: One more root-level leaf, three entries per tier (one per data-home path):
+    #:
+    #: * ``chat_steering_off.json`` -- the steering files each chat switched off,
+    #:   sealed read-only so an agent cannot switch off a rule for its own chat. A
+    #:   file at the data-home root beside writable siblings, rewritten in place,
+    #:   so leaf-only is the only hold, as for ``shared_crew_preview.json``.
+    EXPECTED: dict[str, int] = {"standard": 333, "cc": 340, "strict": 341}
 
     @pytest.mark.parametrize("tier", TIERS)
     def test_leaf_only_count_has_not_grown(self, tier: str) -> None:
