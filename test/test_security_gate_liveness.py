@@ -775,7 +775,23 @@ def _url_payload_command(n: int) -> str:
 #: Raised by one, from 35,533, for the ``update_next_start.json`` entry on the
 #: file-tool write fence: the update armed for the next start, which the sandbox
 #: seals read-only too.
-_PACKAGE_LINE_BUDGET = 35_534
+#: Raised by 376, from 35,534, for the ssh floor's self-host read of a glob verb
+#: (the execute-position reader is its own owner, ``argv_floor_exec``):
+#: a verb glob with a directory part always keeps host matching, a bare glob only
+#: in execute position (``_executed_program_indices`` over
+#: ``argv_rules._split_commands_indexed``), so a bare glob that only sits in a
+#: program's operands, a comment or a ``case`` arm is a filename, not a self-host;
+#: and ``_array_element_indices`` (reusing ``_array_literals`` beside
+#: ``_array_assignments``), so a bare glob inside an array literal
+#: (``files=( s* *.* )``) is an element, not an executed verb; and
+#: ``_substitution_positions``, so a word inside ``$( … )`` or backticks
+#: (``n=$(ls s* *.*)``) belongs to the substitution's own frame; and
+#: ``argv_floor_exec._text_without_data_heredocs``, which reads the one heredoc reader
+#: ``shell_commands.read_commands`` and leaves out of the execute-position read a heredoc
+#: body that is certainly data: a quoted tag, a statement that expands nothing, and a
+#: known reader in a known form in every pipe segment. A literal verb in a body is always
+#: read. Re-measured.
+_PACKAGE_LINE_BUDGET = 35_910
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
