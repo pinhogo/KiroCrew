@@ -175,6 +175,16 @@ describe('switchSlot.rejected — a gone target restores the pre-switch selectio
     expect(s.slotLoading).toBe(false)
   })
 
+  it('a transient failure onto a streaming target leaves no run state on the cleared pane (#34428)', async () => {
+    const store = await primedStore()
+    store.dispatch(sseChatMessage({ slot: 'flaky', role: 'chunk', content: 'x' }))
+    expect(store.getState().chat.slotRun['flaky'].state).toBe('streaming')
+    await store.dispatch(switchSlot('flaky'))
+    const s = store.getState().chat
+    expect(s.activeSlot).toBe('flaky')
+    expect([s.slotState, s.slotRunning, s.slotStopping]).toEqual(['idle', false, false])
+  })
+
   it('a 404 landing after the user already switched on does not yank the selection', async () => {
     let rejectGone!: (e: unknown) => void
     detail.mockImplementation((key: string) => {

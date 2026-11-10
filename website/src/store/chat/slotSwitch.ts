@@ -891,6 +891,7 @@ export function addSlotSwitchCases(builder: ActionReducerMapBuilder<ChatState>):
         return
       }
       state.messages = []
+      state.slotState = 'idle'
       state.slotRunning = false
       state.slotStopping = false
       setPagingCursor(state, false, 0)
