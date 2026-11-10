@@ -7,6 +7,7 @@
 //   the approve command and countdown — and NEVER any nonce
 // - an arm refusal surfaces as an inline error, not a dead button
 // - the manual installer command stays reachable behind the details fold
+import type { ReactNode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup, act, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -14,8 +15,9 @@ import { Provider } from 'react-redux'
 import { store } from '../store'
 import { sseStatus, setUpdateProgress } from '../store/dashboardSlice'
 import { MemoryRouter } from 'react-router-dom'
-import { AboutPanel } from '../pages/settings/AboutPanel'
+import { AboutPanel, InAppUpdateFlow } from '../pages/settings/AboutPanel'
 import { __resetErrorJournalForTests, consumeChatHandoff } from '../utils/errorReport'
+import { newQueryClient } from '../api/queryClient'
 
 const BLANK_STATUS = {
   uptime: '1m', sessions: 0, messages: 0, cron_jobs: 0, subagents: 0, lessons: 0,
@@ -31,6 +33,12 @@ const ARMABLE_STATUS = {
   update_channel: 'insider',
   update_managed_by: 'kirocrew',
   update_command: 'curl -fsSL https://example.invalid/cli.sh | sh',
+} as const
+
+/** The gateway's `GET /api/update/arm` answer while an in-app (managed-venv) arm is live. */
+const LIVE_ARM = {
+  armed: true, managed_by: 'kirocrew', request_id: 'r1', version: '9.9.9',
+  expires_in: 590, approve_command: 'kirocrew update approve',
 } as const
 
 function stubFetch(overrides: Record<string, unknown> = {}) {
@@ -103,6 +111,7 @@ function stubFetch(overrides: Record<string, unknown> = {}) {
       })
     }
     if (url.includes('/api/update/arm')) {
+      if (overrides.armStatus) return json((overrides.armStatus as () => unknown)())
       return json({ armed: true, request_id: 'r1', version: '9.9.9', expires_in: 590, approve_command: 'kirocrew update approve' })
     }
     if (url.includes('/api/update/check')) return json({})
@@ -541,6 +550,78 @@ describe('AboutPanel in-app update (arm + approve)', () => {
     await screen.findByTestId('in-app-update-armed')
     expect(screen.queryByTestId('in-app-update-failed')).toBeNull()
     expect(store.getState().dashboard.updateProgress).toBeNull()
+  })
+
+  // These two run on the dashboard's own client: its cached answers never go stale,
+  // which is what a copy mounted later has to read past.
+  const withProviders = (qc: QueryClient, ui: ReactNode) => (
+    <Provider store={store}>
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    </Provider>
+  )
+  const isArmPost = (c: unknown[]) =>
+    String(c[0]).includes('/api/update/arm') && (c[1] as { method?: string })?.method === 'POST'
+
+  it('shows an arm another surface made instead of offering a second one', async () => {
+    let serverArmed = false
+    const spy = stubFetch({ armStatus: () => (serverArmed ? LIVE_ARM : { armed: false }) })
+    store.dispatch(sseStatus({ ...ARMABLE_STATUS } as never))
+    const qc = newQueryClient()
+    // What's new arms the update, then closes.
+    const whatsNew = render(withProviders(qc, <InAppUpdateFlow version="9.9.9" manualCommand="" />))
+    await waitFor(() => expect(qc.getQueryData(['update-arm-status'])).toEqual({ armed: false }))
+    serverArmed = true
+    fireEvent.click(screen.getByRole('button', { name: /update to v9\.9\.9/i }))
+    await screen.findByTestId('in-app-update-armed')
+    whatsNew.unmount()
+
+    // Settings > About mounts its own copy afterwards, while the gateway holds that arm.
+    render(withProviders(qc, <AboutPanel />))
+    const armed = await screen.findByTestId('in-app-update-armed')
+    expect(within(armed).getByTestId('approve-command').textContent).toContain('kirocrew update approve')
+    expect(spy.mock.calls.filter(isArmPost)).toHaveLength(1)
+  })
+
+  it('shows one copy\'s arm on another copy that is on screen at the same time', async () => {
+    let serverArmed = false
+    stubFetch({ armStatus: () => (serverArmed ? LIVE_ARM : { armed: false }) })
+    const qc = newQueryClient()
+    render(withProviders(qc, (
+      <>
+        <div data-testid="copy-a"><InAppUpdateFlow version="9.9.9" manualCommand="" /></div>
+        <div data-testid="copy-b"><InAppUpdateFlow version="9.9.9" manualCommand="" /></div>
+      </>
+    )))
+    // Both idle copies have read "nothing armed" before the click.
+    await waitFor(() => expect(qc.getQueryData(['update-arm-status'])).toEqual({ armed: false }))
+    serverArmed = true
+    const copyA = screen.getByTestId('copy-a')
+    const copyB = screen.getByTestId('copy-b')
+    fireEvent.click(within(copyA).getByRole('button', { name: /update to v9\.9\.9/i }))
+
+    await waitFor(() => expect(within(copyB).getByTestId('in-app-update-armed')).toBeTruthy())
+    expect(within(copyB).getByTestId('approve-command').textContent).toContain('kirocrew update approve')
+    // The copy that armed is waiting for the approval: the earlier "nothing armed"
+    // read is not taken for that approval landing.
+    expect(within(copyA).getByTestId('in-app-update-armed')).toBeTruthy()
+  })
+
+  it('shows an adopted arm instead of an earlier attempt\'s failure', async () => {
+    // A failed apply's progress stays in the store (a new tab reads it off the
+    // status), but a live arm postdates that attempt.
+    stubFetch({ armStatus: () => LIVE_ARM })
+    store.dispatch(setUpdateProgress({ step: 'failed', detail: 'old failure' } as never))
+    try {
+      render(withProviders(newQueryClient(), <InAppUpdateFlow version="9.9.9" manualCommand="" />))
+      await waitFor(() => expect(store.getState().dashboard.updateProgress).toBeNull())
+      const armed = await screen.findByTestId('in-app-update-armed')
+      expect(within(armed).getByTestId('approve-command').textContent).toContain('kirocrew update approve')
+      expect(screen.queryByTestId('in-app-update-failed')).toBeNull()
+    } finally {
+      store.dispatch(setUpdateProgress(null))
+    }
   })
 
   it('keeps the manual installer command reachable behind the fold', async () => {

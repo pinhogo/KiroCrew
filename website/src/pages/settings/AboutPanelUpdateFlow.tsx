@@ -8,7 +8,7 @@
  * `RestartGatewayButton`, `resolveUnarmedPhase`), so their importers keep that path.
  */
 import { useEffect, useRef, useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, AlertCircle, GitBranch, ArrowUp, X, Download, Copy } from 'lucide-react'
 import { Btn } from '../../components/ui'
 import { useAppDispatch, useAppSelector } from '../../store'
@@ -244,7 +244,8 @@ export function InAppUpdateFlow({
      * `version` prop: the gateway re-checks the feed before arming, so a panel
      * whose verdict is hours old can offer v1 and arm the newer v2. The armed
      * copy names this one, or the approval installs a version the UI never
-     * mentioned. Empty for a gateway that predates the field.
+     * mentioned. Empty for a gateway that predates the field, and for an arm
+     * adopted from the status read, which carries only the raw version.
      */
     versionDisplay: string
     /**
@@ -267,6 +268,12 @@ export function InAppUpdateFlow({
   useEffect(() => {
     armedRef.current = armed
   }, [armed])
+  // When this copy last entered `idle` (mount, or Try again); Infinity once it
+  // arms itself. The arm is one gateway record shown by three copies of this
+  // flow (Settings > About, What's new, the update-found dialog), so an idle copy
+  // adopts a live arm another copy made — but only from an answer read since
+  // then: an older cached one can predate an approval or expiry.
+  const idleSince = useRef(Date.now())
   // The armed version differs from the one the button offered, so the panel owes
   // the user an explanation rather than a bare second number. Declared once
   // because it decides BOTH armed lines: the explanatory note renders on it, and
@@ -318,6 +325,7 @@ export function InAppUpdateFlow({
       : 'pages.settings.aboutPanel.update_to_version', { version })
     : i18nT('pages.settings.aboutPanel.update_now')
   const dispatch = useAppDispatch()
+  const queryClient = useQueryClient()
   const arm = useMutation({
     // The offered version rides as the mutation variable so `onSuccess` records
     // what THIS click was made against (see `armed.offered`).
@@ -339,6 +347,15 @@ export function InAppUpdateFlow({
           deadlineMs: Date.now() + expiresIn * 1000,
         })
         setPhase('armed')
+        // Seed the shared arm-status read with this arm: idle copies adopt it now,
+        // and the poll below never mistakes an idle copy's earlier `armed: false`
+        // for this arm's approval. The seed can render before `phase` updates, so
+        // stop adopting first: adopting its own arm would drop `versionDisplay`.
+        idleSince.current = Infinity
+        queryClient.setQueryData(['update-arm-status'], {
+          armed: true, managed_by: 'kirocrew', request_id: res.request_id, version: res.version,
+          expires_in: expiresIn, approve_command: res.approve_command,
+        })
       } else {
         setArmError({ message: res.error || i18nT('pages.settings.aboutPanel.update_failed') })
       }
@@ -391,18 +408,40 @@ export function InAppUpdateFlow({
     }, 1000)
     return () => clearInterval(tick)
   }, [isArmed])
-  // Liveness poll through react-query, enabled only while armed: a consumed
-  // request (armed: false) is the approval landing. A single error is left to
+  // Liveness poll through react-query while armed: a consumed request
+  // (armed: false) is the approval landing. A single error is left to
   // retry on the next interval — the local countdown keeps running regardless —
   // but a run of ARM_POLL_FAILURE_THRESHOLD consecutive failures is surfaced
   // in the armed panel, because past that point the approval can land unseen.
+  // Each copy also reads it as it mounts, past the cache (the dashboard's queries
+  // never go stale on their own), to find an arm another copy made.
   const armStatusQuery = useQuery({
     queryKey: ['update-arm-status'],
     queryFn: () => api.armStatus(),
-    enabled: isArmed,
-    refetchInterval: 5000,
+    enabled: isArmed || phase === 'idle',
+    refetchOnMount: 'always',
+    refetchInterval: isArmed ? 5000 : false,
   })
   const polled = armStatusQuery.data
+  const polledAt = armStatusQuery.dataUpdatedAt
+  // Adopt a live in-app arm while idle. The packaged-app lane (`managed_by:
+  // 'electron'`) is the agent request card's, never this flow's. An approval
+  // consumes the arm, so a live one postdates any progress in the store: clear
+  // it as the arm click does.
+  useEffect(() => {
+    if (phase !== 'idle' || polledAt < idleSince.current) return
+    if (!polled?.armed || polled.managed_by !== 'kirocrew' || !polled.approve_command) return
+    const expiresIn = polled.expires_in ?? 600
+    dispatch(setUpdateProgress(null))
+    setArmed({
+      approveCommand: polled.approve_command,
+      versionDisplay: '',
+      offered: version,
+      expiresIn,
+      deadlineMs: polledAt + expiresIn * 1000,
+    })
+    setPhase('armed')
+  }, [phase, polled, polledAt, version, dispatch])
   useEffect(() => {
     if (!isArmed || !polled) return
     if (!polled.armed) {
@@ -433,6 +472,7 @@ export function InAppUpdateFlow({
     if (progressStep === 'failed' || progressStep === 'error') setPhase('failed')
   }, [progressStep, phase])
   const resetFailure = () => {
+    idleSince.current = Date.now()
     setPhase('idle')
     setArmed(null)
     setCmdCopied(false)
