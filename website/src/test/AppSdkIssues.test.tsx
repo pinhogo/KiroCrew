@@ -228,6 +228,32 @@ describe('IssueList', () => {
     expect(screen.getByText('Crash when the list is empty')).toBeInTheDocument()
   })
 
+  it('reads the list again when an app reopens it after the route cache expires', async () => {
+    const mount = () => render(
+      <AppApiProvider appName="issues-app-stale" allowedApiPaths={[ISSUES_PATH]} navigateFn={() => {}}>
+        <IssueList query={QUERY} />
+      </AppApiProvider>,
+    )
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T10:00:00Z'))
+    try {
+      const first = mount()
+      await screen.findByText('Crash when the list is empty', {}, LAZY)
+      first.unmount()
+      // 31 s later: past the route's 30 s cache, so the reopened list reads again.
+      clock.mockReturnValue(Date.parse('2026-11-01T10:00:31Z'))
+      mount()
+      await waitFor(() => expect(bodies()).toHaveLength(2))
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('hides the filter bar while a raw query replaces the structured filters', async () => {
+    render(externalApp([ISSUES_PATH], <IssueList query={{ ...QUERY, raw: 'is:open label:bug' }} showFilters />))
+    await screen.findByText('Crash when the list is empty', {}, LAZY)
+    expect(screen.queryByRole('search')).toBeNull()
+  })
+
   it('shows a skeleton while the first page loads', async () => {
     let release: (r: Response) => void = () => {}
     fetchMock.mockImplementationOnce(() => new Promise<Response>(r => { release = r }))

@@ -27,6 +27,9 @@ import { AppSdkContext, apiPathAllowed, type AppApi } from '../scopedApi'
 
 export const ISSUES_PATH = '/api/source/issues'
 
+/** How long a loaded list counts as fresh: the route caches results 30 s. */
+const ISSUES_STALE_MS = 30_000
+
 /** Fetches one page for a query. */
 export type IssuesTransport = (query: IssueSearchRequest) => Promise<IssueSearchResponse>
 
@@ -94,6 +97,10 @@ export function useIssues(query: IssueSearchRequest, opts: UseIssuesOptions = {}
     },
     initialPageParam: null as string | null,
     getNextPageParam: (last: IssueSearchResponse) => last.nextCursor || undefined,
+    // The app's client keeps data forever (`staleTime: Infinity`, freshness by
+    // server push), but nothing pushes issue changes. Revalidate a list that is
+    // older than the route's own 30 s cache when it mounts or regains focus.
+    staleTime: ISSUES_STALE_MS,
     enabled,
   })
   const pages = result.data?.pages

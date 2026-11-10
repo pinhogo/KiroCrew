@@ -754,7 +754,7 @@ page.
 |---|---|---|---|
 | `query` | `IssueSearchRequest` | yes | What to list; a new query replaces the filter bar's edits |
 | `view` | `'condensed' \| 'expanded'` | no | One row per issue (default) or one card |
-| `showFilters` | `boolean` | no | State, assignee (`me` included), labels and search text |
+| `showFilters` | `boolean` | no | State, assignee (`me` included), labels and search text; hidden while `query.raw` is set, since a raw query replaces those filters |
 | `onSelect` | `(issue: IssueSummary) => void` | no | Makes each row a button; without it a row links out |
 | `emptyText` | `string` | no | Replaces the empty-state text |
 
