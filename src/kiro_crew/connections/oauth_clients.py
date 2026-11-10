@@ -49,7 +49,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping, TypedDict
+from typing import Any, Iterable, Literal, Mapping, TypedDict
 
 from kiro_crew.connections.registry import (
     Provider,
@@ -58,7 +58,7 @@ from kiro_crew.connections.registry import (
     is_preregistered,
     redirect_uri,
 )
-from kiro_crew.mcp_utils import KIRO_OAUTH_KEY
+from kiro_crew.mcp_utils import KIRO_OAUTH_KEY, kiro_entry_client_id
 
 #: Root of the public client-id records in ``config.json``.
 CONFIG_ROOT_KEY = "connections"
@@ -342,7 +342,35 @@ def apply_preregistered_oauth_client(
     return out
 
 
-def strip_preregistered_oauth_client(entry: dict[str, Any]) -> dict[str, Any]:
+#: The ``oauth`` keys this module owns on a pre-registered provider's entry.
+_OWNED_OAUTH_KEYS = ("clientId", "clientSecret", "redirectUri")
+
+#: Providers whose operator client was projected before a scope copy dropped it
+#: at copy time, so a source ``mcp.json`` may still hold a copy of it. For every
+#: other pre-registered provider (Slack) a client on a source entry was written
+#: by the user and is kept. Frozen: a provider added later never needs it.
+_PROJECTED_BEFORE_COPY_STRIP = frozenset(
+    {
+        "github",
+        "asana",
+        "gmail",
+        "google-drive",
+        "google-calendar",
+        "google-sheets",
+        "google-docs",
+        "google-slides",
+    }
+)
+
+
+def keeps_user_client(slug: str) -> bool:
+    """Whether a client on a source entry for ``slug`` is the user's own, never a copy."""
+    return slug not in _PROJECTED_BEFORE_COPY_STRIP
+
+
+def strip_preregistered_oauth_client(
+    entry: dict[str, Any], *, user_oauth: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     """Remove the three ``oauth`` keys this module owns from a remote MCP entry.
 
     The inverse of :func:`apply_preregistered_oauth_client`, for a pre-registered
@@ -351,20 +379,55 @@ def strip_preregistered_oauth_client(entry: dict[str, Any]) -> dict[str, Any]:
     survive there -- its retired secret still presented at the token endpoint
     and still readable in the file. Sibling ``oauth`` sub-keys survive; the
     mapping is dropped once nothing is left in it.
+
+    ``user_oauth`` is the user's own client from a source scope
+    (:func:`user_oauth_client`): it is put back whole after the strip.
     """
 
     out = dict(entry)
     raw_oauth = out.get(KIRO_OAUTH_KEY)
-    if not isinstance(raw_oauth, dict):
-        return out
-    oauth = dict(raw_oauth)
-    for key in ("clientId", "clientSecret", "redirectUri"):
+    oauth = dict(raw_oauth) if isinstance(raw_oauth, dict) else {}
+    for key in _OWNED_OAUTH_KEYS:
         oauth.pop(key, None)
+    oauth.update(user_oauth or {})
     if oauth:
         out[KIRO_OAUTH_KEY] = oauth
     else:
         out.pop(KIRO_OAUTH_KEY, None)
     return out
+
+
+def user_oauth_client(slug: str, url: object, scopes: Iterable[object]) -> dict[str, str] | None:
+    """The user's own ``clientId``/``clientSecret``/``redirectUri`` on ``slug`` at ``url``.
+
+    ``scopes`` are source ``mcpServers`` maps in priority order, never a rendered
+    spec. ``{}`` for a provider in :data:`_PROJECTED_BEFORE_COPY_STRIP`, whose
+    source entries may hold a copy of the operator's client. ``None`` when no
+    source scope has ``slug`` at ``url``: the entry lives only in the rendered
+    spec, which the rebuild keeps as the user wrote it.
+    """
+
+    if not keeps_user_client(slug):
+        return {}
+    for scope in scopes:
+        entry = scope.get(slug) if isinstance(scope, Mapping) else None
+        if not isinstance(entry, Mapping) or entry.get("url") != url:
+            continue
+        oauth = entry.get(KIRO_OAUTH_KEY)
+        kept = {
+            k: v
+            for k, v in (oauth.items() if isinstance(oauth, Mapping) else ())
+            if k in _OWNED_OAUTH_KEYS and k != "clientId" and isinstance(v, str) and v
+        }
+        # Either spelling, through the one reader that lets a top-level clear win
+        # over a stale ``oauth.clientId`` sibling.
+        client_id = validate_client_id(kiro_entry_client_id(dict(entry)))
+        if client_id:
+            kept["clientId"] = client_id
+        # The first matching entry decides, empty included: a client the user
+        # cleared there must not come back from a lower-priority scope.
+        return kept
+    return None
 
 
 def provider_for_server(name: str, entry: Mapping[str, Any] | None) -> Provider | None:

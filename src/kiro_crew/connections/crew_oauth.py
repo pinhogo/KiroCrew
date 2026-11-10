@@ -81,6 +81,24 @@ _ENDPOINTS: dict[str, dict[str, Any]] = {
         "revoke": "https://app.asana.com/-/oauth_revoke",
         "revoke_form": ("token", "client_id", "client_secret"),
     },
+    # Slack's MCP authorization server (https://mcp.slack.com/.well-known/
+    # oauth-authorization-server): user-token consent and token endpoints,
+    # client_secret_post, PKCE S256. Slack's MCP docs require the app's client
+    # secret (docs.slack.dev/ai/slack-mcp-server); refresh tokens rotate and are
+    # single-use (docs.slack.dev/authentication/using-token-rotation).
+    "slack": {
+        "authorize": "https://slack.com/oauth/v2_user/authorize",
+        "token": "https://slack.com/api/oauth.v2.user.access",
+        # Revokes one token, the access token (docs.slack.dev/reference/methods/
+        # auth.revoke); Slack answers 200 and reports the outcome in the body.
+        # shortcut: no Slack endpoint revokes a refresh token, so the rotating
+        # refresh token stays live upstream until its 30-day expiry; the card's
+        # revoke page ends the whole grant.
+        "revoke": "https://slack.com/api/auth.revoke",
+        "revoke_form": ("token",),
+        "revoke_token": "access",
+        "revoke_ok_field": "revoked",
+    },
     **{
         slug: _GOOGLE
         for slug in (
@@ -101,7 +119,9 @@ _REFRESH_SKEW_SECS = 120.0
 SIGN_IN_TTL_SECS = 600.0
 _HTTP_TIMEOUT_SECS = 20.0
 #: Refresh errors that mean the stored refresh token is dead (after one re-read).
-_DEAD_GRANT_ERRORS = frozenset({"bad_refresh_token", "invalid_grant", "unauthorized_client"})
+_DEAD_GRANT_ERRORS = frozenset(
+    {"bad_refresh_token", "invalid_grant", "invalid_refresh_token", "unauthorized_client"}
+)
 
 _refresh_locks: dict[str, asyncio.Lock] = {}
 _startup_locks: dict[str, asyncio.Lock] = {}
@@ -819,16 +839,26 @@ async def _revoke(slug: str, tokens: Tokens) -> bool:
             else None
         )
         if form_fields:
-            values = {"token": tokens.refresh or tokens.access}
+            endpoint = _ENDPOINTS[slug]
+            token = tokens.access if endpoint.get("revoke_token") == "access" else None
+            values = {"token": token or tokens.refresh or tokens.access}
             if client is not None:
                 values.update(client_id=client.client_id, client_secret=client.client_secret)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
-                    _ENDPOINTS[slug]["revoke"],
+                    endpoint["revoke"],
                     data={k: values[k] for k in form_fields},
                     allow_redirects=False,
                 ) as resp:
-                    return resp.status == 200
+                    ok_field = endpoint.get("revoke_ok_field")
+                    if resp.status != 200 or not ok_field:
+                        return resp.status == 200
+                    # A 200 that still says no (Slack's ``{"ok": false}``) is no revoke.
+                    try:
+                        body = await resp.json(content_type=None)
+                    except ValueError:
+                        return False
+                    return isinstance(body, dict) and body.get(ok_field) is True
         auth = aiohttp.BasicAuth(client.client_id, client.client_secret)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.delete(

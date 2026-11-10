@@ -81,12 +81,31 @@ def _find_server_spec_anywhere(name: str) -> dict | None:
         # owned keys so the scope copy holds only what the sources hold; the
         # next rebuild re-projects the live client into the spec regardless.
         from kiro_crew.connections.oauth_clients import (  # noqa: PLC0415
+            keeps_user_client,
             provider_for_server,
             strip_preregistered_oauth_client,
+            user_oauth_client,
         )
 
         if provider_for_server(name, found) is not None:
-            found = strip_preregistered_oauth_client(found)
+            # A user-written client on a source entry (Slack) rides along; the
+            # rendered one may be the operator's and never does.
+            mine: dict[str, str] | None = {}
+            if keeps_user_client(name):
+                raw = [
+                    _load_json_or_empty(p).get("mcpServers", {})
+                    for p in (
+                        _kirocrew_mcp_json(),
+                        _GLOBAL_MCP_JSON,
+                        *[s.global_json for s in _extra_mcp_scopes()],
+                    )
+                ]
+                mine = user_oauth_client(name, found.get("url"), raw)
+            if mine is None:
+                # Only the rendered spec has it, and the rebuild keeps such an
+                # entry verbatim: its client is the user's, so the copy keeps it.
+                return found
+            found = strip_preregistered_oauth_client(found, user_oauth=mine)
         return found
     for path in (
         _kirocrew_mcp_json(),

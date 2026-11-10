@@ -120,7 +120,13 @@ async def test_get_lists_every_preregistered_provider_unconfigured(home):
         ("google-docs", 48110),
         ("google-slides", 48111),
     )
-    assert set(by_slug) == {slug for slug, _ in shipped}
+    # Slack needs its secret too, on a localhost redirect.
+    assert set(by_slug) == {slug for slug, _ in shipped} | {"slack"}
+    slack = by_slug["slack"]
+    assert slack["configured"] is False and slack["confidential"] is True
+    assert slack["redirect_uri"] == "http://localhost:48106/callback"
+    assert slack["registration_guide"] == "oauth-app-registration/slack.md"
+    assert "client_secret" not in slack
     for slug, port in shipped:
         record = by_slug[slug]
         assert record["configured"] is False
@@ -871,3 +877,66 @@ async def test_a_declined_rebuild_answers_success_and_says_the_spec_did_not_foll
         "connections_oauth_client_put",
         "connections_oauth_client_delete",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mine",
+    [
+        {"clientId": "mine"},
+        {
+            "clientId": "mine",
+            "clientSecret": "my-own-secret",
+            "redirectUri": "http://localhost:3118/cb",
+        },
+    ],
+    ids=["no-secret", "secret"],
+)
+async def test_saving_the_slack_record_leaves_the_users_own_slack_entries_alone(
+    home, monkeypatch, tmp_path, mine
+):
+    """Saving Slack's OAuth app runs the real scope scrub: it must not rewrite the
+    user's ``slack`` entries, in Kiro Crew's ``mcp.json`` or in the global file a
+    standalone kiro-cli reads."""
+    import kiro_crew.agent as agent_mod
+    import kiro_crew.connections.mint as mint_mod
+    from kiro_crew.dashboard.handlers import mcp as mcp_handlers
+
+    url = "https://mcp.slack.com/mcp"
+    store, kiro_global = tmp_path / "crew-mcp.json", tmp_path / "kiro-mcp.json"
+    for path in (store, kiro_global):
+        path.write_text(
+            json.dumps({"mcpServers": {"slack": {"url": url, "oauth": dict(mine)}}}),
+            encoding="utf-8",
+        )
+    before = {path: path.read_bytes() for path in (store, kiro_global)}
+    monkeypatch.setattr(mcp_handlers, "_kirocrew_mcp_json", lambda: store)
+    monkeypatch.setattr(mcp_handlers, "_GLOBAL_MCP_JSON", kiro_global)
+    monkeypatch.setattr(mcp_handlers, "_extra_mcp_scopes", lambda: [])
+
+    async def _no_mint(slug: str) -> None:
+        return None
+
+    class _NoLock:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return None
+
+    monkeypatch.setattr(mint_mod, "cancel_mint", _no_mint)
+    monkeypatch.setattr(connections, "_get_mcp_lock", _NoLock)
+    monkeypatch.setattr(agent_mod, "rebuild_agent_config_reporting", lambda: (None, True))
+    monkeypatch.setattr(connections, "_refresh_client_projections", _REAL_REFRESH)
+
+    client = await _client()
+    try:
+        resp = await client.put(
+            f"{BASE}/slack", json={"client_id": "123.456", "client_secret": SECRET}
+        )
+        assert resp.status == 200, await resp.text()
+    finally:
+        await client.close()
+
+    for path, raw in before.items():
+        assert path.read_bytes() == raw, path

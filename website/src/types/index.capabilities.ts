@@ -450,6 +450,10 @@ export interface McpServer {
    *  table may offer the in-place sign-in on it. Absent or false for a server
    *  an agent, a session or a hand edit added. */
   ownerSignIn?: boolean
+  /** This row is a Connections provider's server whose client the user may hold
+   *  themselves (Slack), and no OAuth Apps record exists for it yet. The card
+   *  leaves the row alone and the row keeps its own chat sign-in guidance. */
+  connectionUnconfigured?: boolean
   /** Set by the gateway only while chats run on KAS, on a row that asked for
    *  OAuth whose sign-in a KAS chat would not use (see `McpKasChatSignIn`).
    *  Absent: no caveat. */

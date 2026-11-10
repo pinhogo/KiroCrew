@@ -15283,7 +15283,8 @@
       "prerequisite_google_calendar": "Google ne prend pas en charge l’enregistrement dynamique de client : Connecter utilise donc l’app OAuth Google enregistrée sous Paramètres → Apps OAuth. La page de consentement Google nomme cette app ; approuve-la pour continuer.",
       "prerequisite_google_sheets": "Google ne prend pas en charge l’enregistrement dynamique de client : Connecter utilise donc l’app OAuth Google enregistrée sous Paramètres → Apps OAuth. La page de consentement Google nomme cette app ; approuve-la pour continuer.",
       "prerequisite_google_docs": "Google ne prend pas en charge l’enregistrement dynamique de client : Connecter utilise donc l’app OAuth Google enregistrée sous Paramètres → Apps OAuth. La page de consentement Google nomme cette app ; approuve-la pour continuer.",
-      "prerequisite_google_slides": "Google ne prend pas en charge l’enregistrement dynamique de client : Connecter utilise donc l’app OAuth Google enregistrée sous Paramètres → Apps OAuth. La page de consentement Google nomme cette app ; approuve-la pour continuer."
+      "prerequisite_google_slides": "Google ne prend pas en charge l’enregistrement dynamique de client : Connecter utilise donc l’app OAuth Google enregistrée sous Paramètres → Apps OAuth. La page de consentement Google nomme cette app ; approuve-la pour continuer.",
+      "prerequisite_slack": "Slack ne prend pas en charge l’enregistrement dynamique de client : Connecter utilise donc l’app Slack enregistrée sous Paramètres → Apps OAuth, avec son ID client et son secret client. La page de consentement Slack nomme cette app ; approuve-la pour continuer."
     },
     "contextBreakdown": {
       "axis_turn_n": "Tour {{n}}",

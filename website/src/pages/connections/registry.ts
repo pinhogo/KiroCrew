@@ -67,20 +67,24 @@ export const CONNECTION_PROVIDERS = registry.filter(
     (provider.launch_gate_passed || isPreregisteredProvider(provider)),
 )
 
-function normalizedUrl(value: string | undefined): string {
-  return (value || '').trim().replace(/\/+$/, '').toLowerCase()
-}
-
 /**
  * Connections creates remote entries under the provider slug. Requiring both
  * that stable name and the registry URL prevents a hand-authored custom server
  * that happens to use the same endpoint from being labelled as managed.
+ *
+ * The URL must equal the registry's exactly, the rule the backend's
+ * `oauth_clients.provider_for_server` applies before it binds an operator
+ * client: a row the card owns but the backend refuses would offer a Connect
+ * that can never reach the chat.
+ *
+ * A row the gateway marks `connectionUnconfigured` is left alone: its provider
+ * has no OAuth Apps record yet, so the card could only fail, and the row's own
+ * chat guidance is where the client the user wrote signs in.
  */
 export function connectionProviderForServer(server: McpServer): ConnectionProvider | undefined {
-  const serverUrl = normalizedUrl(server.url)
-  if (!serverUrl) return undefined
+  if (!server.url || server.connectionUnconfigured === true) return undefined
   return CONNECTION_PROVIDERS.find(provider =>
-    server.name === provider.slug && normalizedUrl(provider.mcp_url) === serverUrl,
+    server.name === provider.slug && provider.mcp_url === server.url,
   )
 }
 

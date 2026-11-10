@@ -14906,7 +14906,8 @@
       "prerequisite_google_calendar": "Google unterstützt keine dynamische Client-Registrierung, deshalb verwendet „Verbinden“ die unter Einstellungen → OAuth-Apps registrierte Google-OAuth-App. Die Zustimmungsseite von Google nennt diese App; bestätige sie, um fortzufahren.",
       "prerequisite_google_sheets": "Google unterstützt keine dynamische Client-Registrierung, deshalb verwendet „Verbinden“ die unter Einstellungen → OAuth-Apps registrierte Google-OAuth-App. Die Zustimmungsseite von Google nennt diese App; bestätige sie, um fortzufahren.",
       "prerequisite_google_docs": "Google unterstützt keine dynamische Client-Registrierung, deshalb verwendet „Verbinden“ die unter Einstellungen → OAuth-Apps registrierte Google-OAuth-App. Die Zustimmungsseite von Google nennt diese App; bestätige sie, um fortzufahren.",
-      "prerequisite_google_slides": "Google unterstützt keine dynamische Client-Registrierung, deshalb verwendet „Verbinden“ die unter Einstellungen → OAuth-Apps registrierte Google-OAuth-App. Die Zustimmungsseite von Google nennt diese App; bestätige sie, um fortzufahren."
+      "prerequisite_google_slides": "Google unterstützt keine dynamische Client-Registrierung, deshalb verwendet „Verbinden“ die unter Einstellungen → OAuth-Apps registrierte Google-OAuth-App. Die Zustimmungsseite von Google nennt diese App; bestätige sie, um fortzufahren.",
+      "prerequisite_slack": "Slack unterstützt keine dynamische Client-Registrierung, deshalb verwendet „Verbinden“ die unter Einstellungen → OAuth-Apps registrierte Slack-App mit ihrer Client-ID und ihrem Client-Secret. Die Zustimmungsseite von Slack nennt diese App; bestätige sie, um fortzufahren."
     },
     "contextBreakdown": {
       "axis_turn_n": "Zug {{n}}",
