@@ -83,6 +83,32 @@ const RUNNING_JOB = {
 const DONE_JOB = { ...RUNNING_JOB, status: 'done' as const, instance_id: 'i-0abc123456789def0' }
 const REGION_REQUIRED = 'Enter an AWS Region, for example us-east-1.'
 const STALE = 'The profile or Region changed since this check. Re-check to update.'
+const RETRY = 'Fix the problem shown below, or change the Subnet ID above, then choose Launch to try again.'
+const CHECK_CREWS = 'The message below says whether anything from this attempt is still running, and how to remove it. Launch is off because these settings were just sent: change the Subnet ID above to try different ones, or choose Launch another crew to repeat them.'
+const FAILED_AT_PREFLIGHT = [
+  { key: 'preflight', label: 'Check your AWS setup', state: 'failed' as const },
+  { key: 'provision', label: 'Create the instance', state: 'pending' as const },
+  { key: 'install', label: 'Install Kiro Crew', state: 'pending' as const },
+  { key: 'connect', label: 'Connect', state: 'pending' as const },
+]
+const FAILED_AFTER_REGISTER = [
+  { key: 'preflight', label: 'Checked your AWS setup', state: 'done' as const },
+  { key: 'provision', label: 'Created the instance', state: 'done' as const },
+  { key: 'signin', label: 'Sign in to Kiro', state: 'failed' as const },
+  { key: 'connect', label: 'Connected', state: 'done' as const },
+]
+const FAILED_AT_REGISTER = [
+  { key: 'preflight', label: 'Checked your AWS setup', state: 'done' as const },
+  { key: 'provision', label: 'Created the instance', state: 'done' as const },
+  { key: 'signin', label: 'Sign in to Kiro', state: 'pending' as const },
+  { key: 'connect', label: 'Connect', state: 'failed' as const },
+]
+const FAILED_AT_PROVISION = [
+  { key: 'preflight', label: 'Checked your AWS setup', state: 'done' as const },
+  { key: 'provision', label: 'Create the instance', state: 'failed' as const },
+  { key: 'install', label: 'Install Kiro Crew', state: 'pending' as const },
+  { key: 'connect', label: 'Connect', state: 'pending' as const },
+]
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -186,6 +212,60 @@ describe('RemoteCrewPanel launch form', () => {
     await u.click(screen.getByRole('button', { name: 'Launch another crew' }))
     await waitFor(() => expect(api.cloudLaunch).toHaveBeenCalledTimes(2))
     expect(vi.mocked(api.cloudLaunch).mock.calls[1]).toEqual(vi.mocked(api.cloudLaunch).mock.calls[0])
+  })
+
+  it('after a launch that failed before provisioning, says it failed and offers Launch as the retry', async () => {
+    // Stopped at the AWS check: nothing was created, so repeating the settings is safe.
+    vi.mocked(api.cloudLaunchStatus).mockResolvedValue({ ...RUNNING_JOB, status: 'failed' as const, steps: FAILED_AT_PREFLIGHT })
+    const u = userEvent.setup()
+    await openSetup(u)
+
+    const launch = await screen.findByRole('button', { name: /^Launch$/ })
+    await waitFor(() => expect(launch).not.toBeDisabled())
+    await u.click(launch)
+
+    expect(await screen.findByText(RETRY)).toBeInTheDocument()
+    expect(screen.getAllByRole('alert').some(a => a.textContent?.includes(RETRY))).toBe(true)
+    expect(screen.queryByText(/Launched\. Its progress is shown below/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Launch another crew' })).not.toBeInTheDocument()
+    // Launch is the retry: the reader may fix the cause outside the form or change the subnet first.
+    const retry = screen.getByRole('button', { name: /^Launch$/ })
+    expect(retry).not.toBeDisabled()
+    await u.type(screen.getByRole('textbox', { name: 'Subnet ID (optional)' }), 'subnet-0123abcd')
+    await u.click(retry)
+    await waitFor(() => expect(api.cloudLaunch).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(api.cloudLaunch).mock.calls[1][0]).toMatchObject({ subnet_id: 'subnet-0123abcd' })
+  })
+
+  // From provisioning on a stack may still exist: a refused sign-in leaves a
+  // registered crew, and a failed provision is rolled back best-effort with no
+  // field saying whether the rollback confirmed.
+  it.each([
+    ['sign-in, after its crew registered', { instance_id: 'i-0abc123456789def0', steps: FAILED_AFTER_REGISTER }],
+    ['registration, with an instance that never registered', { instance_id: 'i-0abc123456789def0', steps: FAILED_AT_REGISTER }],
+    ['provisioning, with no instance returned', { steps: FAILED_AT_PROVISION }],
+  ])('after a launch that failed during %s, says it failed but keeps the same-settings guard', async (_case, failed) => {
+    // One line for every case: it points at the job's own message rather than
+    // claiming what is left, since a registered crew may have been deleted since.
+    const line = CHECK_CREWS
+    vi.mocked(api.cloudLaunchStatus).mockResolvedValue({ ...RUNNING_JOB, status: 'failed' as const, ...failed })
+    const u = userEvent.setup()
+    await openSetup(u)
+
+    const launch = await screen.findByRole('button', { name: /^Launch$/ })
+    await waitFor(() => expect(launch).not.toBeDisabled())
+    await u.click(launch)
+
+    expect(await screen.findByText(line)).toBeInTheDocument()
+    expect(screen.getAllByRole('alert').some(a => a.textContent?.includes(line))).toBe(true)
+    expect(screen.queryByText(/Launched\. Its progress is shown below/)).not.toBeInTheDocument()
+    expect(screen.queryByText(RETRY)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Launch$/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Launch another crew' })).toBeInTheDocument()
+    // A different subnet is a different crew, so Launch comes back for it.
+    await u.type(screen.getByRole('textbox', { name: 'Subnet ID (optional)' }), 'subnet-0123abcd')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Launch$/ })).not.toBeDisabled())
+    expect(api.cloudLaunch).toHaveBeenCalledTimes(1)
   })
 
   it('offers no launch while a crew setup is still running, which the gateway would refuse', async () => {
