@@ -256,6 +256,8 @@ export type {
 export type {
   SlackConfigData,
   SlackConfigSave,
+  SlackSharedAccessData,
+  SlackSharedUser,
   SlackCapability,
   SlackCodeSwitchKey,
   SlackCodeChannelDefaults,
