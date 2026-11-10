@@ -194,6 +194,7 @@ async def create_session(
     # spec declared. One call either way -- no path resolves it twice.
     session_work_dir = await self._session_work_dir(cwd)
     denied_tools: frozenset[tuple[str, str]] = frozenset()
+    zero_tools = False
     # Defined for every path, not just the array-building one: a caller that
     # supplied its own array never enters the block below, and the member
     # confirmation asks whether a MIRROR built this session's array.
@@ -227,6 +228,7 @@ async def create_session(
             crew_bridged = list(mirrored.crew_bridged)
             stub_token = mirrored.stub_token
             denied_tools = mirrored.denied_tools
+            zero_tools = mirrored.zero_tools
             mirrored_snapshot = mirrored.derived_spec_snapshot
             consumed_spec = mirrored.agent_spec
             ref_spec = mirrored.ref_spec
@@ -499,6 +501,7 @@ async def create_session(
             budget=budget,
             stub_token=stub_token,
             denied_tools=denied_tools,
+            zero_tools=zero_tools,
             mirrored_snapshot=mirrored_snapshot,
             consumed_spec=consumed_spec,
             mirror_used=mirrored is not None,
@@ -545,6 +548,7 @@ async def create_session(
             budget=budget,
             stub_token=stub_token,
             denied_tools=denied_tools,
+            zero_tools=zero_tools,
             mirrored_snapshot=mirrored_snapshot,
             consumed_spec=consumed_spec,
             mirror_used=mirrored is not None,
@@ -579,6 +583,7 @@ def _collect_late_start(
     budget: float,
     stub_token: str,
     denied_tools: frozenset[tuple[str, str]],
+    zero_tools: bool = False,
     mirrored_snapshot: Any,
     consumed_spec: Any = None,
     mirror_used: bool = False,
@@ -671,6 +676,7 @@ def _collect_late_start(
                 budget=budget,
                 stub_token=stub_token,
                 denied_tools=denied_tools,
+                zero_tools=zero_tools,
                 mirrored_snapshot=mirrored_snapshot,
                 consumed_spec=consumed_spec,
                 mirror_used=mirror_used,
@@ -739,6 +745,7 @@ async def _finish_create_session(
     budget: float,
     stub_token: str,
     denied_tools: frozenset[tuple[str, str]],
+    zero_tools: bool = False,
     mirrored_snapshot: Any,
     consumed_spec: Any = None,
     mirror_used: bool = False,
@@ -798,6 +805,9 @@ async def _finish_create_session(
     # session's permission requests. Empty for a host with no mirror and for a
     # caller-supplied array, and the handle's check is a no-op on empty.
     handle.spec_denied_tools = denied_tools
+    # The same parse's ``"tools": []`` answer: the handle then refuses every
+    # permission request this session raises.
+    handle.spec_zero_tools = zero_tools
     # The spec the array was built from, for a member session's loaded-check.
     handle.consumed_agent_spec = consumed_spec
     handle.mirror_used = mirror_used
