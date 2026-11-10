@@ -7,7 +7,8 @@ created slot writes.
 Instance fields of ``DashboardState`` this module reads and writes:
 
 Reads only: ``_ephemeral_keys``, ``_restricted_keys``, ``_slack_to_slot``, ``_slots``,
-``_slots_under_construction``, ``restoring_open_slots``, ``sessions``,
+``_slots_under_construction``, ``owed_slot_keys_known``, ``restoring_open_slot_keys``,
+``restoring_open_slots``, ``sessions``, ``slot_list_rebuilding``,
 ``unrestored_slot_keys``.
 
 A function whose first parameter is ``self`` is a ``DashboardState`` method: the
@@ -17,6 +18,7 @@ and writes the state's own fields and calls its siblings through ``self``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import logging
@@ -25,6 +27,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from kiro_crew import memory_startup
 from kiro_crew.dashboard.session_pulse_counter import increment_user_session_count_off_loop
 from kiro_crew.dashboard.slot_buffers import MAX_SLOT_KEY_CHARS
 from kiro_crew.dashboard.state_parts.chat_slot import _ChatSlot
@@ -391,6 +394,33 @@ def slot_exists(self: DashboardState, name: str) -> bool:
     if name in (getattr(self, "unrestored_slot_keys", None) or ()):
         return True
     return bool(getattr(self, "restoring_open_slots", False))
+
+
+async def session_still_loading(self: DashboardState, name: str) -> bool:
+    """Whether *name* is a tab the startup restore still owes and has not built.
+
+    A send or a create for it must be refused, not admitted: with no slot yet, it
+    would mint a fresh one under the saved key and lose the saved state (the agent
+    binding). Only keys in the restore's plan (``restoring_open_slot_keys``) are
+    refused. Before the restore has read its snapshot the plan is not known yet, so a
+    name with no live slot waits for it (``owed_slot_keys_known``), bounded by the
+    memory admission grace, and is refused when the bound runs out. Callers pass
+    only a NAMED key: a new chat with no name never reaches here and never waits.
+    """
+    under_construction = getattr(self, "_slots_under_construction", None) or ()
+    if name in self._slots and name not in under_construction:
+        return False
+    known = self.owed_slot_keys_known
+    if not known.is_set() and self.slot_list_rebuilding:
+        try:
+            await asyncio.wait_for(
+                known.wait(), timeout=memory_startup.MEMORY_ADMISSION_WAIT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            return True
+    return name in self.restoring_open_slot_keys and (
+        name not in self._slots or name in under_construction
+    )
 
 
 def get_linked_slot(self: DashboardState, session_key: str) -> "_ChatSlot | None":

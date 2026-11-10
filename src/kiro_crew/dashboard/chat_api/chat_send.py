@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         _emit_agent_assignment,
         _forwards_harness_command,
         _history_key_for,
+        _loading_refusal,
         _maybe_auto_title,
         _normalize_slot_key,
         _person_crew_worker_root,
@@ -528,6 +529,8 @@ async def _api_chat_send(request: web.Request) -> web.StreamResponse:
         )
         if denied is not None:
             return denied
+    if _requested_key and (_refused := await _loading_refusal(request, state, _requested_key)):
+        return _refused
     # A tab restored as a sidebar row loads its window here, with the transcript
     # read off the loop, before anything below reads its rows. The live slot is
     # read again after the await, so a close or a replacement during the load is

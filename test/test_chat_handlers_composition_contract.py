@@ -838,6 +838,7 @@ app_admission | _app_claim_refused | async function | (state: 'DashboardState', 
 app_admission | _app_cancel_denied | function | (request: 'web.Request | Mapping[str, Any]', slot: '_ChatSlot', operation: 'str', target_key: 'str') -> 'web.Response | None'
 app_admission | _app_resume_refusal | async function | (state: "'DashboardState'", request_app: 'str', name: 'str', history_key: 'str', meta: 'dict') -> 'ResumeRefusal | None'
 app_admission | _reauthorize_after_await | function | (state: 'DashboardState', slot: '_ChatSlot', name: 'str', request_app: 'str', operation: 'str') -> 'web.Response | None'
+app_admission | _loading_refusal | async function | (request: 'web.Request', state: 'DashboardState', key: 'str') -> 'web.Response | None'
 turn_stop | _reject_pending_approvals | function | (slot: '_ChatSlot') -> 'None'
 turn_stop | _resolve_stop_event | function | (slot: '_ChatSlot', outcome: 'str') -> 'None'
 turn_stop | _rearm_stop_event | function | (slot: '_ChatSlot', stop_data: 'dict[str, Any]') -> 'bool'

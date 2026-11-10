@@ -121,6 +121,7 @@ from kiro_crew.dashboard.chat_api.app_admission import (  # noqa: F401
     _app_slot_acquisition_recheck,
     _deny_app_session_settings,
     _deny_app_yolo,
+    _loading_refusal,
     _reauthorize_after_await,
     _slot_not_found,
 )
