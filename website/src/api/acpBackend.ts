@@ -80,6 +80,16 @@ export function reportsCredits(cfg: AcpBackendConfig | undefined): boolean {
 }
 
 /**
+ * True only when a LOADED config names a harness that bills in dollars: every
+ * harness `reportsCredits` does not name records each turn's tokens and dollar
+ * cost instead of credits (Claude Code), so its figures are tokens and dollars.
+ * `undefined` (not loaded, or failed) is neither, so nothing renders on a guess.
+ */
+export function reportsDollars(cfg: AcpBackendConfig | undefined): boolean {
+  return cfg !== undefined && !reportsCredits(cfg)
+}
+
+/**
  * True only when a LOADED config runs one of the Kiro harnesses: the Kiro
  * account is behind the turn, so its credit balance is the one the top bar
  * shows, and the user's app.kiro.dev model fallbacks apply inside the turn
