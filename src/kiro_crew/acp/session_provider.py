@@ -560,6 +560,15 @@ class AcpSessionProvider(LLMProvider):
         return list(flush()) if callable(flush) else []
 
     @property
+    def sandbox_mode(self) -> str | None:
+        """The tier this session's runtime was spawned under (H14 capability).
+
+        A task step's tenant session reports its run runtime's tier too: its claim ends
+        that one session, and the retry reaches ``_get_or_bootstrap_run_runtime``.
+        """
+        return self._runtime.sandbox_mode
+
+    @property
     def child_fidelity_aware(self) -> bool:
         """See AcpSessionHandle.child_fidelity_aware."""
         return getattr(self._handle, "child_fidelity_aware", False)
