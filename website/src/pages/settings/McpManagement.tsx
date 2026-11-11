@@ -35,6 +35,7 @@ import {
   type GatewayStatus,
   launchIsApprovable,
   launchPreviewErrorKey,
+  notApprovableKey,
   readLaunchPreviews,
   stubErrorKey,
   type McpView,
@@ -883,7 +884,7 @@ export function McpManagement({
               // other "why" lives in the row's Details.
               const hint =
                 refusal && !launchIsApprovable(refusal)
-                  ? i18nT('pages.mcpManagement.approval_not_approvable_here')
+                  ? i18nT(notApprovableKey(refusal), { cap: refusal.launch_cap })
                   : null
               const hintId = `mcp-share-hint-${s.name}`
               const detailsOpen = openDetails.has(s.name)

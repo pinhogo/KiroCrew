@@ -1298,7 +1298,9 @@ or a rebind of its changed `${VAR}` expansion, is therefore wrapped however many
 other agents, read earlier in file order, declare the same name with launches of
 their own. The unapproved launches past the cap are the ones recorded as
 `too_many_launches`, and each is logged with the cap's name rather than as
-unapproved. An approved pair the refusal record has no room for is still counted
+unapproved. Once the cap refuses a name, an unapproved launch read later in the
+same pass that the record already holds keeps `too_many_launches` as the name's
+reason. An approved pair the refusal record has no room for is still counted
 live for its name, so a save does not retire it as an unseen expansion and other
 names' stale expansions are retired as usual. The cap still bounds what a rebind
 adds to the approved pairs.
@@ -1339,7 +1341,12 @@ without a display omits both fields. The refusal record carries each command arg
 with its redacted declared environment, scrubbed and bounded before they enter it,
 and the row's **Details** and the Review dialog display them. A refusal whose
 display was cut is stored `complete: false` with no `expected_launch`, so its
-row offers no Approve. Status polling only reads that record; it
+row offers no Approve. A `too_many_launches` refusal reaches the page as display
+only: the launches the cap kept, `complete: false`, no `expected_launch`, and
+`launch_cap`, the cap itself. Its row reads **Can't share** with **Remove**, says
+that too many agents start the server in different ways, names `launch_cap` as
+the limit, and says that taking it out of some agents, then **Remove** and turning
+**Share** back on, brings it back; `kirocrew doctor` names it the same way. Status polling only reads that record; it
 does not rebuild or resolve agent specs. Every identity serialized into
 `expected_launch` has exactly one command and one environment behind it, so an
 approval covers the exact launch the gateway resolved, pinned by `expected_launch`,

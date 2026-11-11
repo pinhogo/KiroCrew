@@ -180,7 +180,7 @@ export function ServerDetailsBody({
   return (
     <div className="min-w-0 space-y-2 rounded-lg bg-[var(--hover)] px-3 py-2 text-[12px] leading-relaxed text-[var(--muted)]">
       <p id={detailsWhyId(server.name)} className="m-0 break-words text-[12.5px] [overflow-wrap:anywhere]">
-        {i18nT(detailsWhyKey(server, state, refusal))}
+        {i18nT(detailsWhyKey(server, state, refusal), { cap: refusal?.launch_cap })}
       </p>
       {refusal ? (
         <RefusalLaunch refusal={refusal} />

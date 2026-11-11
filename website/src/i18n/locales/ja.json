@@ -15942,6 +15942,7 @@
       "share_all_cancel": "キャンセル",
       "enable_all_review_skipped_names": "スキップ：{{names}}。",
       "approval_not_approvable_here": "このサーバーのコマンドは共有用に承認できないため、各セッション内では実行され続けます。",
+      "approval_over_launch_cap": "このサーバーを異なる方法で起動するエージェントが多すぎます。上限は {{cap}} 個です。一部のエージェントから削除し、「外す」を押して共有をやめてから、「共有」をもう一度オンにしてください。",
       "launch_preview_error_name_required": "サーバー名が送られていないため、表示するものがありません。何も有効になっていません。",
       "launch_preview_error_invalid_name": "{{name}} は {{productName}} がサーバー名として読み取れる名前ではありません。何も有効になっていません。",
       "launch_preview_error_unresolved": "{{name}} には表示できるコマンドがないため、共有バックエンドを使えません。何も有効になっていません。",
