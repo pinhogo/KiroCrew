@@ -557,6 +557,23 @@ def test_the_walk_takes_a_reused_folder_as_found_not_created() -> None:
     assert posts[-1].body["folder_id"] == winner["id"]
 
 
+def test_folder_create_reports_a_reused_folder_as_reused_not_created() -> None:
+    """The leaf create reads the endpoint's 200 reuse the way the walk does."""
+    winner = {"id": "0000000000b9", "name": "Work", "parent_id": ""}
+
+    def _post(req: DashboardRequest) -> dict:
+        return {**winner, "reused": True}
+
+    gw = _Gateway([_OPS, winner])
+    out = _call(
+        "chat_folder_create",
+        {"name": "Work"},
+        {"GET /api/{route}": lambda req: gw.get(req.path), "POST /api/{route}": _post},
+    )
+    assert not out.startswith("Created"), out
+    assert "already exists" in out and winner["id"] in out
+
+
 # ── The preview misses nothing the real create refuses ───────────────────────
 
 
