@@ -242,6 +242,29 @@ def test_bundle_with_no_older_boot_logs_skips_only_prev(tmp_path, monkeypatch):
     assert boot_skips == ["gateway.log.prev"]
 
 
+def test_bundle_includes_the_turn_anomaly_log_and_its_rolled_copies(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    _isolate(monkeypatch, home)
+    (home / "logs").mkdir(parents=True)
+    (home / "logs" / "turn-anomalies.log").write_text('{"reasons": ["no_output"]}\n')
+    (home / "logs" / "turn-anomalies.log.2").write_text('{"reasons": ["bad_stop"]}\n')
+
+    r = diagnostics.collect_bundle(output_dir=tmp_path / "out")
+
+    with zipfile.ZipFile(r.zip_path) as z:
+        names = z.namelist()
+    assert "turn-anomalies.log" in names and "turn-anomalies.log.2" in names
+    # A rolled copy that does not exist is neither a member nor a skip.
+    assert not [m for m in names + r.skipped if m.endswith((".log.1", ".log.3"))]
+
+    # Crash reports only: the session keys in the anomaly log stay out.
+    r = diagnostics.collect_bundle(output_dir=tmp_path / "out-crash", include_logs=False)
+
+    with zipfile.ZipFile(r.zip_path) as z:
+        names = z.namelist()
+    assert not [m for m in names + r.skipped if m.startswith("turn-anomalies.log")]
+
+
 @requires_symlinks
 def test_bundle_refuses_a_symlinked_older_boot_log(tmp_path, monkeypatch):
     home = tmp_path / "home"

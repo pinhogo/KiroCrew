@@ -1963,6 +1963,27 @@ would blank a backend's random tool call ids; every other string goes through
 `validate_attrs`. Never on a span: prompt or completion text, tool arguments or
 output, file paths, MCP server or tool names, exception messages, span events.
 
+### Abnormal turn log (`tracing/turn_anomalies.py`)
+
+Always on and independent of `telemetry.traces_enabled`. `watched` wraps the same
+two stream functions as `traced` and times the turn from Crew's side: start, first
+event, first model output (text, thought or tool call), the longest silence while
+no tool runs and no user ask is open, and the end. A normal turn writes nothing. A
+turn writes one JSON line to `<data home>/logs/turn-anomalies.log` when its first
+output took over `FIRST_OUTPUT_SLOW_SECS` (30 s) or never came on a turn that ran
+that long, its longest model silence was over `MODEL_GAP_SLOW_SECS` (60 s), the
+stream carried a `retry_wait` status, a model fallback or an MCP start failure, it
+stopped on `timeout`, `stale_recover` or an `error:` reason, or the stream raised. A
+line holds the session key, backend, model, the reasons, the timings in seconds,
+event and tool-call counts, notice counts, the stop reason and the exception class
+name; never prompt text, tool data or an exception message. Bounds: the file rolls
+over at 1 MiB with 3 older files (`0600`) and is opened per line, so no process
+holds it open between lines; one session writes at most 5 lines a
+minute; its next line after that carries `suppressed: <n>`. The diagnostics bundle
+includes the file and its rolled-over copies only when it includes logs, because a
+session key can name a channel user. Tests:
+`test/tracing/test_turn_anomalies.py`.
+
 ## Circular-import rule
 
 `metrics/provider.py` imports `config.loader` at module top; call sites reached

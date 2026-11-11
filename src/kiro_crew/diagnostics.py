@@ -49,6 +49,7 @@ from kiro_crew.security import (
     redact_exfiltration_urls,
 )
 from kiro_crew.subprocess_utf8 import UTF8_TEXT
+from kiro_crew.tracing import turn_anomalies
 from kiro_crew.validation import strip_hidden_unicode
 
 logger = logging.getLogger(__name__)
@@ -1508,6 +1509,17 @@ def collect_bundle(
             text_sources.append((f"kiro-chat/{_scratch_log_dir_name(log)}.log", log, True))
         for extra in _kiro_cli_extra_logs():
             text_sources.append((f"kiro-cli-{extra.name}", extra, True))
+        # Slow or failed turns' timings (tracing/turn_anomalies.py). Free of
+        # content but each line names its session key, which for a channel DM
+        # embeds the user's address, so it ships only with the other logs.
+        # Rolled-over files only when present, so a quiet install lists one
+        # skipped name, not four.
+        anomalies = home / "logs" / turn_anomalies.LOG_NAME
+        text_sources.append((anomalies.name, anomalies, True))
+        for n in range(1, turn_anomalies.BACKUP_COUNT + 1):
+            rolled = anomalies.with_name(f"{anomalies.name}.{n}")
+            if rolled.exists():
+                text_sources.append((rolled.name, rolled, True))
 
     # Crash artifacts are always useful and low-volume — include regardless.
     text_sources.append(("crash.log", home / "logs" / "crash.log", False))
