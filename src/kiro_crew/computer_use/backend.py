@@ -632,12 +632,15 @@ WINDOWS_AUTO_UPSTREAM = True
 
 
 def upstream_installed() -> bool:
-    """Whether the pinned upstream driver is installed (reads the record only)."""
+    """Whether the pinned upstream driver is installed AND usable: installed (the
+    record) and not stopped at its last launch by the system (endpoint security
+    software). Windows ``auto`` keeps the native driver otherwise."""
     try:
         from kiro_crew.computer_use.driver_runtime import install as install_mod
         from kiro_crew.config.paths import data_home
 
-        return install_mod.install_state(data_home()).installed
+        home = data_home()
+        return install_mod.install_state(home).installed and not install_mod.read_blocked(home)
     except Exception:
         logger.debug("upstream install state unreadable", exc_info=True)
         return False
