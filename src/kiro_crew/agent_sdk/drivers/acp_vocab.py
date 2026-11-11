@@ -2,7 +2,8 @@
 
 Stop classes and the stop-reason classifier, the tool-call and tool-result
 event kinds, the stop reasons of a turn the backend did not finish, the
-structured-status frame and its wait reasons, the terminal tool-call statuses, the session-start and prompt timeouts and the
+structured-status frame and its wait reasons, the terminal tool-call statuses, the session-start and prompt timeouts, the
+runtime error family a refused session start raises, and the
 native-child marker are backend vocabulary a consumer compares against or
 raises on. The in-flight tool-call tracker is here too: a sub-agent's run
 record builds one as a dataclass field default, so the class has to be bound
@@ -32,7 +33,11 @@ from kiro_crew.acp.engine_fallback import (
     walk_outcome,
 )
 from kiro_crew.acp.liveness import InFlightToolTracker
-from kiro_crew.acp.session_handle import NATIVE_CHILD_NOT_RESUMABLE, AcpRequestTimeout
+from kiro_crew.acp.session_handle import (
+    NATIVE_CHILD_NOT_RESUMABLE,
+    AcpRequestTimeout,
+    AcpRuntimeError,
+)
 from kiro_crew.acp.types import (
     EVENT_MODEL_FALLBACK,
     EVENT_STRUCTURED_STATUS,
@@ -82,6 +87,9 @@ __all__ = [
     "TERMINAL_TOOL_STATUSES",
     "WAIT_REASON_INPUT",
     "AcpRequestTimeout",
+    # The runtime family outside ``AcpError``: a session start the backend
+    # refuses (a KAS engine that cannot be fetched) raises it.
+    "AcpRuntimeError",
     "AcpTimeoutError",
     "InFlightToolTracker",
     "StructuredStatus",
