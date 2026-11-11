@@ -756,7 +756,11 @@ def _url_payload_command(n: int) -> str:
 #: ``deny_gate`` forwards it behind a length-preserving guard. No matcher, rule,
 #: threshold or verdict moved -- the decision is byte-identical and the change is
 #: diagnostics-only. Re-measured.
-_PACKAGE_LINE_BUDGET = 35_311
+#: Raised by 53, from 35,311, for ``argv_floor_ssh``: a glob program word is walked
+#: once per ssh-family verb it can name (``_ssh_family_verbs``, ``_frame_verb_choices``),
+#: and ``_shares_nested_verdicts`` judges each nested payload once per outer call so
+#: those walks do not multiply. Nothing is relaxed. Re-measured.
+_PACKAGE_LINE_BUDGET = 35_364
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
