@@ -1540,27 +1540,24 @@ async def _get_or_create_impl(
                         # declare it must retire any predecessor binding.
                         work_scratch = getattr(provider, "work_scratch_dir", None)
                         if isinstance(work_scratch, Path):
-                            if not await self._record_scratch_tree(key, work_scratch):
-                                if not await run_to_completion(
-                                    asyncio.to_thread(agent_scratch_trees.abandon_tree, key)
-                                ):
-                                    raise OSError(
-                                        "Could not persist scratch retirement in "
-                                        f"{agent_scratch.scratch_root() / agent_scratch_trees.TREE_INDEX_FILENAME}; "
-                                        "repair or remove this index and retry session allocation"
-                                    )
-                        elif (
-                            had_resume_sid
-                            or await run_to_completion(
+                            must_retire = not await self._record_scratch_tree(key, work_scratch)
+                        else:
+                            must_retire = had_resume_sid or await run_to_completion(
                                 asyncio.to_thread(agent_scratch_trees.has_live_tree, key)
                             )
-                        ) and not await run_to_completion(
+                        # A retirement the index did not take still drops the
+                        # in-memory binding (``abandon_tree``), so this process
+                        # never hands that tree back: warn and start, the rule
+                        # a failed binding write follows too.
+                        if must_retire and not await run_to_completion(
                             asyncio.to_thread(agent_scratch_trees.abandon_tree, key)
                         ):
-                            raise OSError(
-                                "Could not persist scratch retirement in "
-                                f"{agent_scratch.scratch_root() / agent_scratch_trees.TREE_INDEX_FILENAME}; "
-                                "repair or remove this index and retry session allocation"
+                            self._deps.logger.warning(
+                                "Could not persist scratch retirement in %s; continuing "
+                                "session allocation. After a gateway restart this session "
+                                "may rejoin its earlier tree.",
+                                agent_scratch.scratch_root()
+                                / agent_scratch_trees.TREE_INDEX_FILENAME,
                             )
                     if self._closing:
                         raise SessionClosingError(

@@ -254,6 +254,12 @@ def abandon_tree(key: str, only: Path | None = None) -> bool:
                 atomic_write(root / TREE_INDEX_FILENAME, json.dumps(rows, sort_keys=True))
             return key not in _read_tree_index(root)
         except (OSError, agent_scratch.ScratchBoundaryError):
+            # The disk row may stay, but this process must never hand it back.
+            with _TREE_INDEX_LIVE_LOCK:
+                live = _TREE_INDEX_LIVE.get(key)
+                if only is None or live is None or live == only:
+                    _exclude_tree_disk_fallback(key)
+                    _retire_tree_binding(key)
             logger.warning(
                 "agent-scratch: could not persist abandoned binding for %s; "
                 "it remains retired until gateway restart",

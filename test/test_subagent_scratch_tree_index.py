@@ -787,8 +787,8 @@ class TestAResumedKeyRejoinsItsTree:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("exposes_tree", [False, True])
-    async def test_failed_retirement_names_the_index_and_refuses_allocation(
-        self, scratch_root: Path, monkeypatch, exposes_tree: bool
+    async def test_failed_retirement_warns_and_starts_the_session(
+        self, scratch_root: Path, monkeypatch, caplog, exposes_tree: bool
     ) -> None:
         scratch_root.mkdir(parents=True)
         tree = scratch_root / "recorded"
@@ -799,15 +799,25 @@ class TestAResumedKeyRejoinsItsTree:
         successor = scratch_root / "successor"
         successor.mkdir()
         mgr, _factory = self._manager("sid-1", successor if exposes_tree else None)
+        service = mgr._allocation_boundary()
+        service._deps = dataclasses.replace(
+            service._deps, is_acp_provider=MagicMock(return_value=True)
+        )
         monkeypatch.setattr(trees, "record_tree", MagicMock(return_value=False))
-        monkeypatch.setattr(trees, "abandon_tree", MagicMock(return_value=False))
+        monkeypatch.setattr(trees, "atomic_write", MagicMock(side_effect=OSError("full disk")))
         try:
-            with pytest.raises(OSError) as caught:
-                await mgr.get_or_create(key, agent="kirocrew")
-            assert str(scratch_root / trees.TREE_INDEX_FILENAME) in str(caught.value)
-            assert "repair or remove this index" in str(caught.value)
-            assert mgr.get_provider(key) is None
-            mgr._session_map.set.assert_not_called()
+            await mgr.get_or_create(key, agent="kirocrew")
+            assert mgr.get_provider(key) is not None
+            mgr._session_map.set.assert_called()
+            assert any(
+                record.levelname == "WARNING"
+                and "Could not persist scratch retirement" in record.message
+                and str(scratch_root / trees.TREE_INDEX_FILENAME) in record.message
+                for record in caplog.records
+            )
+            # The row stays on disk, but this process never hands the tree back.
+            assert trees._read_tree_index(scratch_root) == {key: tree.name}
+            assert trees.recorded_tree(key) is None
         finally:
             await mgr.close_all()
 
@@ -860,8 +870,8 @@ class TestAResumedKeyRejoinsItsTree:
         assert trees.recorded_tree(key) is None
 
     @pytest.mark.asyncio
-    async def test_an_undroppable_earlier_row_refuses_publishing_the_successor(
-        self, scratch_root: Path, monkeypatch
+    async def test_an_undroppable_earlier_row_warns_and_publishes_the_successor(
+        self, scratch_root: Path, monkeypatch, caplog
     ) -> None:
         scratch_root.mkdir(parents=True)
         earlier = scratch_root / "earlier"
@@ -873,10 +883,20 @@ class TestAResumedKeyRejoinsItsTree:
         trees._TREE_INDEX_LIVE.clear()
         monkeypatch.setattr(trees, "atomic_write", MagicMock(side_effect=OSError("full disk")))
         mgr, _factory = self._manager("", successor)
+        service = mgr._allocation_boundary()
+        service._deps = dataclasses.replace(
+            service._deps, is_acp_provider=MagicMock(return_value=True)
+        )
         try:
-            with pytest.raises(OSError, match="Could not persist scratch retirement"):
-                await mgr.get_or_create(key, agent="kirocrew")
-            mgr._session_map.set.assert_not_called()
+            await mgr.get_or_create(key, agent="kirocrew")
+            assert mgr.get_provider(key) is not None
+            mgr._session_map.set.assert_called()
+            assert any(
+                record.levelname == "WARNING"
+                and "Could not persist scratch retirement" in record.message
+                for record in caplog.records
+            )
+            assert trees.recorded_tree(key) is None
         finally:
             await mgr.close_all()
         assert trees._read_tree_index(scratch_root) == {key: earlier.name}
