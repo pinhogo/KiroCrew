@@ -5,6 +5,7 @@ and hydration.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import Awaitable, Callable
 from itertools import islice
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
         audit_app_slot_denial,
         carry_provenance,
         channel_slot_name,
+        close_in_flight,
         close_metadata_under_lock,
         deny_app_slot_session_access,
         durable_row_count,
@@ -1709,7 +1711,11 @@ async def _resume_slot_from_history_noted(
         # with no scavenge) and a cleared ``closed`` marker would stay cleared.
         # Same shape as the construction rollback above. The discard is
         # shielded so a second cancellation cannot cut the rollback short.
+        retracted = contextlib.ExitStack()
         try:
+            # Out of ``_slots`` until the publish, so registered where a vocabulary
+            # delete's capture reads, and stripped only by a delete that commits.
+            retracted.enter_context(close_in_flight(state, slot.key, slot))
             refusal = await containment(slot) if containment is not None else None
             if refusal is not None:
                 return ResumeOutcome(refusal=(await _discard()) or refusal)
@@ -1892,6 +1898,8 @@ async def _resume_slot_from_history_noted(
         except BaseException:
             await asyncio.shield(_discard())
             raise
+        finally:
+            retracted.close()
     # The slot was registered throughout hydration (so a concurrent same-key
     # resume resolved it and hit the idempotency guard) but hidden from the
     # payload while under construction. End construction and push once: this is
