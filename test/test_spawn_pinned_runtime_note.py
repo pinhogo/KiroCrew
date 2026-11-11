@@ -129,13 +129,12 @@ class TestApiSpawnRuntimeNote:
         data, _ = _api_spawn(_BODY, _SharingPlan("m", "", False), keep=True)
         assert "runtime_note" not in data
 
-    def test_the_share_question_is_asked_without_the_runs_own_model(self):
-        """The run's own model is what turns sharing off, so the 'would it
-        share otherwise' question drops it -- on a copy, never the run's info."""
+    def test_the_share_question_is_asked_of_the_run_itself(self):
+        """Whether the run could share is answered with its pins aside (they are
+        the plan's), so the run's own info is asked and left as it was."""
         _, mgr = _api_spawn(_BODY, _SharingPlan("sonnet-test-model", "", False))
         (asked,), _ = mgr._should_use_session_sharing.call_args
-        assert asked is not mgr.spawn_info
-        assert asked.model == "" and asked.routed_model == ""
+        assert asked is mgr.spawn_info
         assert mgr.spawn_info.model == "sonnet-test-model"
         assert mgr.spawn_info.routed_model == "r"
 

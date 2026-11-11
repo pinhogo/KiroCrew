@@ -830,8 +830,6 @@ async def api_spawn(request: web.Request) -> web.Response:
         manager = state.subagents
         if manager is None:
             return ""
-        import copy
-
         from kiro_crew.subagent import _selection_kind
 
         try:
@@ -845,12 +843,9 @@ async def api_spawn(request: web.Request) -> web.Response:
             if getattr(plan, "shared", None) is not False or getattr(info, "keep", False):
                 return ""
             # Name the pin only when it is what took the share away: the same
-            # run without its own model would take the shared arm. A backend
-            # or setting that never shares gets no note.
-            unpinned = copy.copy(info)
-            unpinned.model = ""
-            unpinned.routed_model = ""
-            if manager._should_use_session_sharing(unpinned) is not True:
+            # run would take the shared arm without it. A backend or setting
+            # that never shares gets no note.
+            if manager._should_use_session_sharing(info) is not True:
                 return ""
         except Exception:
             return ""

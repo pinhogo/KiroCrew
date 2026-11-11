@@ -23,6 +23,7 @@ from contextlib import aclosing
 from pathlib import Path
 from typing import Any, cast
 
+from kiro_crew.acp import session_handle_model_selection as _sh_models
 from kiro_crew.acp import session_provider_mcp_reinject as _sp_mcp_reinject
 from kiro_crew.acp import session_provider_shared as _sp_shared
 from kiro_crew.acp import stale_compaction
@@ -1750,6 +1751,12 @@ class AcpSessionProvider(LLMProvider):
                 ) and model_is_unusable(model_id, fresh or advertised):
                     raise AcpModelUnavailable(model_id, fresh or advertised, backend=self.backend)
         await self._guarded(self._handle.set_model(model_id))
+
+    async def apply_configured_model(self, configured_model: str) -> None:
+        """Put this session on its start's model; an unserved one is withheld, not refused."""
+        await _sh_models.apply_configured_model(
+            self._handle, configured_model, backend=self.backend
+        )
 
     async def set_mode(self, agent_name: str) -> None:
         """Switch the active agent via session/set_mode."""
