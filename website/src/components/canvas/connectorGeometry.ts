@@ -204,6 +204,12 @@ export function connectorRoute(from: Box, to: Box, c: Pick<Connector, 'fromSide'
  */
 const ARROW_GAP = 9
 
+/**
+ * Space between a line's ends and the shapes it joins, so a line starts and
+ * stops just clear of a sticker's white edge instead of running over it.
+ */
+const EDGE_GAP = 12
+
 /** *p* moved *by* toward *toward*, never past the halfway point. */
 function pulled(p: Pt, toward: Pt, by: number): Pt {
   const len = Math.hypot(toward.x - p.x, toward.y - p.y)
@@ -226,8 +232,8 @@ function routeOn(from: Box, to: Box, sa: Side, sb: Side, c: Pick<Connector, 'lin
   const b = sideAnchor(to, sb)
   const line = c.line ?? 'elbow'
   const arrows = c.arrows ?? 'end'
-  const endGap = arrows === 'none' ? 0 : ARROW_GAP
-  const startGap = arrows === 'both' ? ARROW_GAP : 0
+  const endGap = EDGE_GAP + (arrows === 'none' ? 0 : ARROW_GAP)
+  const startGap = EDGE_GAP + (arrows === 'both' ? ARROW_GAP : 0)
   if (line === 'straight') {
     const [s, e] = trimmed([a, b], startGap, endGap)
     return { d: `M${s.x},${s.y} L${e.x},${e.y}`, a, b, points: [a, b] }

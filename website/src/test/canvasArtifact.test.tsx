@@ -137,7 +137,7 @@ describe('a canvas artifact', () => {
 describe('the canvas thumbnail', () => {
   it('draws one mark per shape, and says so when the canvas is empty', () => {
     const { container, unmount } = render(<CanvasThumb content={serializeCanvas(withShapes(3))} />)
-    expect(container.querySelectorAll('svg rect')).toHaveLength(3)
+    expect(container.querySelectorAll('[data-testid="canvas-thumb-shape"]')).toHaveLength(3)
     unmount()
     render(<CanvasThumb content={serializeCanvas(emptyCanvas())} />)
     expect(screen.getByText('Empty canvas')).toBeTruthy()

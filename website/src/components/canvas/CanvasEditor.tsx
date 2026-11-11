@@ -13,21 +13,25 @@
  * back through `onChange`. Undo history is kept here, one step per gesture.
  * `readOnly` keeps pan and zoom and drops everything that edits.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useImeGuard } from '../../hooks/useImeGuard'
 import {
   ArrowUpRight, Circle, Diamond, Frame, Hand, Maximize2, Minus, MousePointer2, Plus, Square, StickyNote, Type,
 } from 'lucide-react'
 import {
-  CONN_INK, DEFAULT_SIZE, SECTION_TITLE_H, SWATCH_STYLE, boundsOf, labelScale, newId, sectionMembers, shapeAt, wheelPanStep, wheelZoomFactor, zOrdered,
-  type Canvas, type Connector, type Pt, type Shape, type ShapeKind, type Swatch,
+  CONN_INK, DEFAULT_SIZE, alignOf, defaultAlign, defaultFontSize, fontSizeOf, DEFAULT_TEXT_SIZE, MAX_TEXT_SIZE, MIN_TEXT_SIZE, SECTION_TITLE_H, SWATCH_STYLE, boundsOf, labelScale, newId, sectionMembers, shapeAt, wheelPanStep, wheelZoomFactor, zOrdered,
+  type Canvas, type Connector, type Pt, type Shape, type ShapeKind, type Swatch, type TextAlign,
 } from './canvasModel'
 import CanvasContextMenu, { type MenuAction } from './CanvasContextMenu'
-import { LABEL_ORIGIN, STICKY_SHADOW, solidBorder } from './canvasPaint'
+import {
+  ACTIVE_STICKER, FLOAT_SHADOW, NOTE_DROP, TAPE, TAPE_SHADOW, noteClip, noteFold, LABEL_ORIGIN, SECTION_RIM, STICKER_DROP, STICKER_EDGE, TAG_SHADOW, solidBorder, stickerShadow,
+} from './canvasPaint'
 import { copyShapes, pasteClip, restack, setLocked, unlockAll, type CanvasClip } from './canvasEditing'
 import ConnectorToolbar from './ConnectorToolbar'
 import DashedOutline from './DashedOutline'
-import { shapeLook, swatchStyle } from './shapeLook'
+import { shapeLook, swatchStyle, textInk } from './shapeLook'
+import TextToolbar from './TextToolbar'
 import ShapeToolbar from './ShapeToolbar'
 import {
   SIDES, connectorRoute, movedSegment, pointBox, segmentDrag, sideAnchor, sideNear, type SegmentDrag, type Side,
@@ -64,7 +68,11 @@ const HISTORY_CAP = 100
 const HOVER_MARGIN = 24
 /** Screen px within which a dragged connector end snaps onto a side's midpoint. */
 const SIDE_REACH = 28
-const DOT_OFFSET = 14
+const DOT_OFFSET = 18
+/** How long the pointer rests on a dock tool before its tooltip shows. */
+const TIP_DELAY_MS = 500
+/** Screen px between a selected shape and its ring: clear of the sticker's white edge. */
+const SEL_GAP = 9
 
 /**
  * Where a dragged connector end lands: on a side's midpoint when it is within
@@ -91,6 +99,23 @@ function dropOn(shapes: Shape[], p: Pt, zoom: number, not?: string): { shape: Sh
 const connColor = (c: Pick<Connector, 'color'>) => (c.color ? SWATCH_STYLE[c.color].stroke : CONN_INK)
 /** Connector width in canvas units, so it scales with zoom like FigJam's. */
 const CONNECTOR_STROKE = 3
+/** Corner radii of a sticky and a rectangle: round enough to read as cut stickers. */
+const STICKY_RADIUS = 4
+/** A sticky's folded corner and its tape, in canvas units. */
+const NOTE_FOLD = 22
+const NOTE_TAPE = { w: 56, h: 18 }
+
+/**
+ * How far a sticky leans, in degrees: the same for a note every time it is drawn
+ * (read from its id), between -3 and 3, so a board of notes looks pinned up by
+ * hand. Only the drawing leans; its box, selection and connectors stay square.
+ */
+export function noteTilt(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+  return Math.round(((((h % 61) + 61) % 61) / 10 - 3) * 10) / 10
+}
+const RECT_RADIUS = 16
 
 /**
  * What Copy last took. Kept for the tab rather than per canvas, so a copy pastes
@@ -152,6 +177,16 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
   const [menu, setMenu] = useState<{ x: number; y: number; at: Pt; ids: string[] } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const [spaceDown, setSpaceDown] = useState(false)
+  /** The dock tool whose tooltip shows: set after the pointer rests on it, cleared when it leaves or clicks. */
+  const [tip, setTip] = useState<Tool | null>(null)
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tipFor = (next: Tool | null) => {
+    if (tipTimer.current) clearTimeout(tipTimer.current)
+    tipTimer.current = null
+    if (!next) { setTip(null); return }
+    tipTimer.current = setTimeout(() => setTip(next), TIP_DELAY_MS)
+  }
+  useEffect(() => () => { if (tipTimer.current) clearTimeout(tipTimer.current) }, [])
 
   const tools: { tool: Tool; icon: ReactNode; label: string; key: string }[] = [
     { tool: 'select', icon: <MousePointer2 size={18} />, label: t('components.canvas.tool_select'), key: 'V' },
@@ -345,7 +380,7 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
   const recolor = (color: Swatch) => restyle({ color, hex: undefined })
 
   /** A change to every selected shape's look, as one undo step. */
-  const restyle = (patch: Partial<Pick<Shape, 'color' | 'fill' | 'weight' | 'border' | 'borderColor' | 'hex' | 'borderHex'>>) => {
+  const restyle = (patch: Partial<Pick<Shape, 'color' | 'fill' | 'weight' | 'border' | 'borderColor' | 'hex' | 'borderHex' | 'ink' | 'inkHex' | 'bold' | 'strike' | 'align'>>) => {
     const b = canvasRef.current
     commit({ ...b, shapes: b.shapes.map(s => (selected.has(s.id) ? { ...s, ...patch } : s)) })
   }
@@ -355,7 +390,7 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
    * enter the undo history; the last one records the whole gesture as one step.
    */
   const liveBase = useRef<Canvas | null>(null)
-  const restyleLive = (patch: Partial<Pick<Shape, 'hex' | 'borderHex'>>, final: boolean) => {
+  const restyleLive = (patch: Partial<Pick<Shape, 'hex' | 'borderHex' | 'inkHex'>>, final: boolean) => {
     const b = canvasRef.current
     liveBase.current ??= b
     const next = { ...b, shapes: b.shapes.map(s => (selected.has(s.id) ? { ...s, ...patch } : s)) }
@@ -364,6 +399,45 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
     liveBase.current = null
     if (JSON.stringify(before) !== JSON.stringify(next)) commit(next, before)
     else onChange(before)
+  }
+
+  /**
+   * A new text size for every selected shape that holds text. A text box grows to
+   * fit its lines at the new size and never shrinks below what was drawn, so
+   * nothing is cut off; a shape keeps its size and its text reflows inside it.
+   */
+  const resizeText = (size: number) => {
+    const b = canvasRef.current
+    const px = Math.round(Math.min(MAX_TEXT_SIZE, Math.max(MIN_TEXT_SIZE, size)))
+    commit({
+      ...b,
+      shapes: b.shapes.map(s => {
+        if (!selected.has(s.id) || s.kind === 'section') return s
+        const { fontSize: _was, ...plain } = s
+        void _was
+        if (s.kind !== 'text') return { ...plain, ...fontSizeOf(s.kind, px) }
+        const lines = Math.max(1, s.text.split('\n').length)
+        const h = Math.max(s.h * px / (s.fontSize ?? defaultFontSize(s.kind)), Math.ceil(lines * px * 1.3 + 8))
+        const w = Math.max(s.w, Math.ceil(px * 4))
+        const { fontSize: _old, ...rest } = s
+        void _old
+        return { ...rest, ...(px !== DEFAULT_TEXT_SIZE ? { fontSize: px } : {}), w: Math.round(w), h: Math.round(h) }
+      }),
+    })
+  }
+
+  /** One alignment for every selected shape, stored only where it differs from that kind's default. */
+  const setAlign = (a: TextAlign) => {
+    const b = canvasRef.current
+    commit({
+      ...b,
+      shapes: b.shapes.map(s => {
+        if (!selected.has(s.id) || s.kind === 'section') return s
+        const { align: _old, ...rest } = s
+        void _old
+        return { ...rest, ...alignOf(s.kind, a) }
+      }),
+    })
   }
 
   /** Turn every selected shape into another kind, keeping its place, text and colour; a sticky is square. */
@@ -676,15 +750,19 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
 
   const cursor = drag?.kind === 'pan' ? 'grabbing' : readOnly || tool === 'hand' || spaceDown ? 'grab' : tool === 'select' ? 'default' : 'crosshair'
   const showChrome = !readOnly && (!drag || drag.kind === 'marquee')
+  // The selection ring and handles stay up while a shape is resized: a text box
+  // has no fill or edge of its own, so without them there is nothing to see.
+  const showFrame = showChrome || (!readOnly && drag?.kind === 'resize')
 
   return (
-    <div
-      ref={root}
-      role="application"
+    // The canvas is one keyboard-driven surface (tools, shortcuts, arrow-free
+    // pointer gestures) announced as an application, so it takes focus and keys
+    // itself; every chrome control inside it is a real button.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- role="application" is the canvas's own keyboard surface; its controls are real buttons
+    <div ref={root} role="application" tabIndex={0}
       aria-label={readOnly ? t('components.canvas.label_readonly') : t('components.canvas.label')}
-      className="relative h-full w-full overflow-hidden outline-none select-none"
+      className="relative h-full w-full overflow-hidden select-none"
       data-testid="canvas-editor"
-      tabIndex={0}
       onPointerDown={onPointerDown}
       onPointerMove={onHover}
       onDoubleClick={onDoubleClick}
@@ -738,15 +816,16 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
       </div>
 
       {/* Selection outline and resize handles. */}
-      {showChrome && selShapes.map(s => {
+      {showFrame && selShapes.map(s => {
         const r = screenBox(s)
         return (
-          <div key={`sel-${s.id}`} className="pointer-events-none absolute" style={{ left: r.x - 2, top: r.y - 2, width: r.w + 4, height: r.h + 4, border: '1.5px solid var(--accent)', borderRadius: s.kind === 'ellipse' ? '50%' : s.kind === 'section' ? 14 : 8 }} />
+          // A ring just outside the sticker's white edge, so the edge stays visible.
+          <div key={`sel-${s.id}`} className="pointer-events-none absolute" style={{ left: r.x - SEL_GAP, top: r.y - SEL_GAP, width: r.w + SEL_GAP * 2, height: r.h + SEL_GAP * 2, border: '3px solid var(--accent)', borderRadius: s.kind === 'ellipse' ? '50%' : s.kind === 'section' ? 18 : s.kind === 'rect' ? 22 : 15 }} />
         )
       })}
       {/* Edges of the selected shape: hover one and drag to move just that side.
           Drawn before the corner handles, so a corner still wins where they meet. */}
-      {showChrome && selShapes.length === 1 && !editing && !selShapes[0].locked && (['n', 'e', 's', 'w'] as const).map(c => {
+      {showFrame && selShapes.length === 1 && !editing && !selShapes[0].locked && (['n', 'e', 's', 'w'] as const).map(c => {
         const r = screenBox(selShapes[0])
         const th = 10
         const pos = c === 'n' ? { left: r.x, top: r.y - th / 2, width: r.w, height: th }
@@ -755,13 +834,14 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
               : { left: r.x + r.w - th / 2, top: r.y, width: th, height: r.h }
         return <div key={c} data-handle={c} data-shape={selShapes[0].id} data-testid={`handle-${c}`} className="absolute" style={{ ...pos, cursor: EDGE_CURSOR[c] }} />
       })}
-      {showChrome && selShapes.length === 1 && !editing && (['nw', 'ne', 'sw', 'se'] as Corner[]).map(c => {
+      {showFrame && selShapes.length === 1 && !editing && (['nw', 'ne', 'sw', 'se'] as Corner[]).map(c => {
         const r = screenBox(selShapes[0])
-        const left = c.endsWith('w') ? r.x - 6 : r.x + r.w - 4
-        const top = c.startsWith('n') ? r.y - 6 : r.y + r.h - 4
+        // Round purple handles with a white edge, centred on the selection ring's corners.
+        const left = (c.endsWith('w') ? r.x - SEL_GAP : r.x + r.w + SEL_GAP) - 8
+        const top = (c.startsWith('n') ? r.y - SEL_GAP : r.y + r.h + SEL_GAP) - 8
         return (
           <div key={c} data-handle={c} data-shape={selShapes[0].id} data-testid={`handle-${c}`} className="absolute"
-            style={{ left, top, width: 10, height: 10, borderRadius: 3, background: 'var(--bg)', border: '1.5px solid var(--accent)', cursor: c === 'nw' || c === 'se' ? 'nwse-resize' : 'nesw-resize' }} />
+            style={{ left, top, width: 16, height: 16, borderRadius: '50%', background: 'var(--accent)', border: `3px solid ${STICKER_EDGE}`, boxShadow: '0 1px 3px rgba(0,0,0,.3)', cursor: c === 'nw' || c === 'se' ? 'nwse-resize' : 'nesw-resize' }} />
         )
       })}
 
@@ -841,11 +921,17 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
         const r = screenBox(selBox)
         return (
           <div data-canvas-ui className="absolute" style={{ left: r.x + r.w / 2, top: r.y - 14, transform: 'translate(-50%, -100%)', zIndex: 8 }} onPointerDown={e => e.stopPropagation()}>
-            <ShapeToolbar shapes={selShapes} onColor={recolor} onFill={fill => restyle({ fill: fill === 'solid' ? undefined : fill })}
+            {selShapes.every(s => s.kind === 'text') ? (
+              <TextToolbar shapes={selShapes}
+                onInk={ink => restyle({ ink, inkHex: undefined })} onInkHex={(inkHex, final) => restyleLive({ inkHex }, final)}
+                onSize={resizeText}
+                onBold={bold => restyle({ bold: bold || undefined })} onStrike={strike => restyle({ strike: strike || undefined })}
+                onAlign={setAlign} onDelete={deleteSelection} />
+            ) : <ShapeToolbar shapes={selShapes} onColor={recolor} onFill={fill => restyle({ fill: fill === 'solid' ? undefined : fill })}
               onKind={changeKind} onWeight={weight => restyle({ weight: weight === 'medium' ? undefined : weight })}
               onBorder={border => restyle({ border: border === 'solid' ? undefined : border })} onBorderColor={borderColor => restyle({ borderColor, borderHex: undefined })}
               onHex={(hex, final) => restyleLive({ hex }, final)} onBorderHex={(borderHex, final) => restyleLive({ borderHex }, final)}
-              onDelete={deleteSelection} />
+              onAlign={setAlign} onSize={resizeText} onDelete={deleteSelection} />}
           </div>
         )
       })()}
@@ -868,19 +954,31 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
 
       {/* The tool dock. */}
       {!readOnly && (
-        <div data-canvas-ui role="toolbar" aria-label={t('components.canvas.tools')} className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-2xl border border-border bg-bg-elevated p-1.5 shadow-xl" style={{ zIndex: 9 }} onPointerDown={e => e.stopPropagation()} data-testid="canvas-dock">
+        <div data-canvas-ui role="toolbar" aria-label={t('components.canvas.tools')} className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-2xl bg-bg-elevated p-2 text-text" style={{ zIndex: 9, boxShadow: FLOAT_SHADOW }} onPointerDown={e => e.stopPropagation()} data-testid="canvas-dock">
           {tools.map(tl => (
-            <button key={tl.tool} type="button" aria-label={tl.label} title={t('components.canvas.tool_with_key', { label: tl.label, key: tl.key })} aria-keyshortcuts={tl.key} aria-pressed={tool === tl.tool} data-testid={`tool-${tl.tool}`}
-              onClick={() => { setTool(tl.tool); root.current?.focus() }}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${tool === tl.tool ? 'bg-accent text-accent-fg' : 'text-text hover:bg-bg-hover'}`}>
+            <button key={tl.tool} type="button" aria-label={tl.label} aria-keyshortcuts={tl.key} aria-pressed={tool === tl.tool} data-testid={`tool-${tl.tool}`}
+              onClick={() => { tipFor(null); setTool(tl.tool); root.current?.focus() }}
+              onPointerEnter={() => tipFor(tl.tool)} onPointerLeave={() => tipFor(null)}
+              style={tool === tl.tool ? { boxShadow: ACTIVE_STICKER } : undefined}
+              className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${tool === tl.tool ? 'bg-accent text-accent-fg' : 'text-text hover:bg-bg-hover'}`}>
               {tl.icon}
+              {/* FigJam's tooltip: after a short hover, this one tool's name and key in a
+                  small dark tag above it. Drawn outside the dock and takes no pointer, so
+                  nothing moves under the click. */}
+              {tip === tl.tool && (
+                <span aria-hidden data-testid="canvas-tool-tip" className="pointer-events-none absolute bottom-full left-1/2 mb-3 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[13px] leading-none"
+                  style={{ background: 'var(--text)', color: 'var(--bg)' }}>
+                  {tl.label}<span style={{ opacity: 0.6 }}>{tl.key}</span>
+                  <span className="absolute left-1/2 top-full -translate-x-1/2" style={{ borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '6px solid var(--text)' }} />
+                </span>
+              )}
             </button>
           ))}
         </div>
       )}
 
       {/* Zoom. */}
-      <div data-canvas-ui className="absolute bottom-5 right-5 flex items-center gap-0.5 rounded-xl border border-border bg-bg-elevated p-1 shadow-lg" style={{ zIndex: 9 }} onPointerDown={e => e.stopPropagation()}>
+      <div data-canvas-ui className="absolute bottom-5 right-5 flex items-center gap-0.5 rounded-2xl bg-bg-elevated p-1.5 text-text" style={{ zIndex: 9, boxShadow: FLOAT_SHADOW }} onPointerDown={e => e.stopPropagation()}>
         <button type="button" aria-label={t('components.canvas.zoom_out')} title={t('components.canvas.zoom_out')} onClick={() => { const r = root.current!.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.2) }} className="rounded-lg p-1.5 text-text hover:bg-bg-hover"><Minus size={14} /></button>
         <button type="button" aria-label={t('components.canvas.reset_zoom')} title={t('components.canvas.reset_zoom')} onClick={() => setView(v => ({ ...v, zoom: 1 }))} className="min-w-[48px] rounded-lg px-1 py-1 text-[12px] tabular-nums text-text hover:bg-bg-hover">{t('components.canvas.zoom_percent', { percent: Math.round(view.zoom * 100) })}</button>
         <button type="button" aria-label={t('components.canvas.zoom_in')} title={t('components.canvas.zoom_in')} onClick={() => { const r = root.current!.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.2) }} className="rounded-lg p-1.5 text-text hover:bg-bg-hover"><Plus size={14} /></button>
@@ -892,6 +990,7 @@ export default function CanvasEditor({ canvas, onChange, readOnly = false }: Can
 
 function SectionView({ shape: s, editing, zoom, onText, onEndEdit }: { shape: Shape; editing: boolean; zoom: number; onText: (text: string) => void; onEndEdit: () => void }) {
   const { t } = useTranslation()
+  const ime = useImeGuard()
   const sw = swatchStyle(s.color, s.hex)
   const look = shapeLook(s)
   // The label is drawn larger as the canvas shrinks, from its bottom-left corner, so it stays the same size on screen.
@@ -900,9 +999,11 @@ function SectionView({ shape: s, editing, zoom, onText, onEndEdit }: { shape: Sh
   const title: CSSProperties = {
     position: 'absolute', left: 2, bottom: '100%', marginBottom: 6 * k, height: SECTION_TITLE_H - 8, maxWidth: labelW,
     transform: k > 1 ? `scale(${+k.toFixed(3)})` : undefined, transformOrigin: LABEL_ORIGIN,
-    fontSize: 14, fontWeight: 600, lineHeight: `${SECTION_TITLE_H - 8}px`, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    fontSize: 14, fontWeight: 600, lineHeight: `${SECTION_TITLE_H - 8}px`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    // The title is a white tag stuck above the section, as the shapes are stickers.
+    background: STICKER_EDGE, color: SWATCH_STYLE.white.ink, padding: '0 10px', borderRadius: 8, boxShadow: TAG_SHADOW,
   }
-  // A section keeps its soft 2px edge until it is given an outline of its own.
+  // A section keeps its white rim until it is given an outline of its own.
   const custom = s.fill === 'none' || !!s.border || !!s.borderColor || !!s.borderHex
   return (
     <div
@@ -910,7 +1011,8 @@ function SectionView({ shape: s, editing, zoom, onText, onEndEdit }: { shape: Sh
       style={{
         position: 'absolute', left: s.x, top: s.y, width: s.w, height: s.h, borderRadius: 14,
         background: s.fill === 'none' ? 'transparent' : `color-mix(in srgb, ${sw.fill} 85%, transparent)`,
-        border: custom ? `${look.width}px solid ${look.dashed ? 'transparent' : look.border}` : `2px solid color-mix(in srgb, ${sw.stroke} 40%, transparent)`,
+        border: custom ? solidBorder(look.width, look.dashed ? 'transparent' : look.border) : undefined,
+        boxShadow: custom ? undefined : SECTION_RIM,
       }}
     >
       {custom && look.dashed && <DashedOutline w={s.w} h={s.h} width={look.width} color={look.border} radius={14} />}
@@ -922,11 +1024,14 @@ function SectionView({ shape: s, editing, zoom, onText, onEndEdit }: { shape: Sh
           value={s.text}
           placeholder={t('components.canvas.section_placeholder')}
           onChange={e => onText(e.target.value)}
-          onBlur={onEndEdit}
-          onFocus={e => e.currentTarget.select()}
-          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape' || e.key === 'Enter') e.currentTarget.blur() }}
+          // The Enter that picks an IME candidate must not end the edit, so Enter commits only once claimed.
+          {...ime.bindComposition<HTMLInputElement>({ onBlur: onEndEdit, onFocus: e => e.currentTarget.select() })}
+          onKeyDown={e => {
+            e.stopPropagation()
+            if (e.key === 'Escape' || (e.key === 'Enter' && ime.claimEnter(e))) e.currentTarget.blur()
+          }}
           onPointerDown={e => e.stopPropagation()}
-          style={{ ...title, width: labelW, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 14, fontWeight: 600, padding: 0 }}
+          style={{ ...title, width: labelW, border: 'none', outline: 'none', font: 'inherit', fontSize: 14, fontWeight: 600 }}
         />
       ) : (
         <div style={{ ...title, textOverflow: 'ellipsis' }}>
@@ -940,47 +1045,81 @@ function SectionView({ shape: s, editing, zoom, onText, onEndEdit }: { shape: Sh
 /** One shape in world space, with its text editor while it is being edited. */
 function ShapeView({ shape: s, editing, zoom, onText, onEndEdit }: { shape: Shape; editing: boolean; zoom: number; onText: (text: string) => void; onEndEdit: () => void }) {
   const { t } = useTranslation()
+  // A shape's text is centred both ways while it is typed, as in FigJam: the field
+  // is as tall as its lines and the box centres it, rather than filling the box
+  // from the top.
+  const centred = s.kind === 'rect' || s.kind === 'ellipse' || s.kind === 'diamond'
+  const field = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = field.current
+    if (!el || !centred || !editing) return
+    el.style.height = '0px'
+    el.style.height = `${el.scrollHeight}px`
+  }, [centred, editing, s.text, s.w, s.h, s.fontSize])
   if (s.kind === 'section') return <SectionView shape={s} editing={editing} zoom={zoom} onText={onText} onEndEdit={onEndEdit} />
   const sw = swatchStyle(s.color, s.hex)
   const look = shapeLook(s)
   // A dashed outline is an SVG stroke over a transparent border of the same width.
   const outline = solidBorder(look.width, look.dashed ? 'transparent' : look.border)
   const text: CSSProperties = s.kind === 'sticky'
-    ? { fontSize: 16, lineHeight: 1.35, color: look.ink, textAlign: 'left', padding: 16 }
+    ? { fontSize: s.fontSize ?? defaultFontSize(s.kind), lineHeight: 1.35, color: look.ink, textAlign: s.align ?? defaultAlign(s.kind), padding: 16 }
     : s.kind === 'text'
-      ? { fontSize: 20, lineHeight: 1.3, color: 'var(--text)', textAlign: 'left', padding: '4px 2px', fontWeight: 500 }
-      : { fontSize: 15, lineHeight: 1.35, color: look.ink, textAlign: 'center', padding: s.kind === 'diamond' ? '18% 22%' : 14 }
+      ? {
+        fontSize: s.fontSize ?? defaultFontSize(s.kind), lineHeight: 1.3, color: textInk(s), textAlign: s.align ?? defaultAlign(s.kind), padding: '4px 2px',
+        fontWeight: s.bold ? 700 : 500, textDecoration: s.strike ? 'line-through' : undefined,
+      }
+      : { fontSize: s.fontSize ?? defaultFontSize(s.kind), lineHeight: 1.35, color: look.ink, textAlign: s.align ?? defaultAlign(s.kind), padding: s.kind === 'diamond' ? '18% 22%' : 14 }
   const box: CSSProperties = { position: 'absolute', left: s.x, top: s.y, width: s.w, height: s.h, display: 'flex' }
+  // A sticker carries its white edge and lift as box-shadow; an outlined shape its border.
+  const paint = (radius: number | string): CSSProperties => (look.sticker
+    ? { background: s.kind === 'sticky' ? sw.paper : look.fill, borderRadius: radius, boxShadow: stickerShadow(look.edge, look.edgeWidth) }
+    : { background: look.fill, border: outline, borderRadius: radius })
+  // A sticky's paper is drawn by its own layers below; its box only carries the
+  // lift, which follows the folded outline, and the tilt, dropped while typing.
   const shell: CSSProperties =
-    s.kind === 'sticky' ? (look.solid && !s.border && !s.borderColor && !s.borderHex
-      ? { background: sw.paper, borderRadius: 4, boxShadow: STICKY_SHADOW }
-      : { background: look.fill, border: outline, borderRadius: 4 })
-      : s.kind === 'rect' ? { background: look.fill, border: outline, borderRadius: 8 }
-        : s.kind === 'ellipse' ? { background: look.fill, border: outline, borderRadius: '50%' }
+    s.kind === 'sticky' ? { filter: NOTE_DROP, transform: editing ? undefined : `rotate(${noteTilt(s.id)}deg)` }
+      : s.kind === 'rect' ? paint(RECT_RADIUS)
+        : s.kind === 'ellipse' ? paint('50%')
           : {}
   const align: CSSProperties = s.kind === 'sticky' || s.kind === 'text'
     ? { alignItems: 'flex-start', justifyContent: 'flex-start' }
     : { alignItems: 'center', justifyContent: 'center' }
   return (
     <div data-shape-id={s.id} data-testid="canvas-shape" data-kind={s.kind} style={{ ...box, ...shell, ...align }}>
-      {look.dashed && s.kind !== 'text' && (
+      {s.kind === 'sticky' && (
+        <>
+          <span aria-hidden style={{ position: 'absolute', inset: 0, borderRadius: STICKY_RADIUS, background: look.solid ? sw.paper : look.fill, clipPath: noteClip(NOTE_FOLD) }} />
+          <span aria-hidden style={{ position: 'absolute', right: 0, top: 0, width: NOTE_FOLD, height: NOTE_FOLD, borderBottomLeftRadius: STICKY_RADIUS, background: noteFold(sw.stroke) }} />
+          <span aria-hidden data-testid="sticky-tape" style={{ position: 'absolute', top: -NOTE_TAPE.h / 2, left: '50%', width: NOTE_TAPE.w, height: NOTE_TAPE.h, transform: 'translateX(-50%) rotate(-3deg)', background: TAPE, boxShadow: TAPE_SHADOW, borderRadius: 2 }} />
+        </>
+      )}
+      {look.dashed && s.kind !== 'text' && s.kind !== 'sticky' && (
         // A diamond has no CSS border, so its outline starts at the box edge.
         <DashedOutline w={s.w} h={s.h} width={look.width} color={look.border} ellipse={s.kind === 'ellipse'} diamond={s.kind === 'diamond'}
-          offset={s.kind === 'diamond' ? 0 : look.width} radius={s.kind === 'sticky' ? 4 : 8} />
+          offset={s.kind === 'diamond' ? 0 : look.width} radius={RECT_RADIUS} />
       )}
       {s.kind === 'diamond' && (
         // Drawn in the shape's own units so the stroke is as thick as the other
         // shapes' borders and scales with zoom, without stretching on wide diamonds.
-        <svg width="100%" height="100%" viewBox={`0 0 ${s.w} ${s.h}`} style={{ position: 'absolute', inset: 0, overflow: 'visible' }} aria-hidden>
+        // A sticker diamond's white edge is a stroke twice the edge wide, painted
+        // under the fill, so only its outer half shows.
+        // Sized to the shape's own box, so its units are canvas units with no viewBox.
+        <svg width={s.w} height={s.h} style={{ position: 'absolute', inset: 0, overflow: 'visible', filter: look.sticker ? STICKER_DROP : undefined }} aria-hidden>
           <polygon
             points={`${s.w / 2},${look.width} ${s.w - look.width},${s.h / 2} ${s.w / 2},${s.h - look.width} ${look.width},${s.h / 2}`}
-            fill={look.fill} stroke={look.dashed ? 'none' : look.border} strokeWidth={look.width} strokeLinejoin="round"
+            fill={look.fill} strokeLinejoin="round"
+            {...(look.sticker
+              ? { stroke: look.edge, strokeWidth: look.edgeWidth * 2, paintOrder: 'stroke' }
+              : { stroke: look.dashed ? 'none' : look.border, strokeWidth: look.width })}
           />
         </svg>
       )}
       {editing ? (
         <textarea
+          ref={field}
           autoFocus
+          rows={1}
+          placeholder={centred ? t('components.canvas.add_text') : undefined}
           aria-label={t('components.canvas.shape_text')}
           data-testid="canvas-shape-editor"
           value={s.text}
@@ -989,10 +1128,12 @@ function ShapeView({ shape: s, editing, zoom, onText, onEndEdit }: { shape: Shap
           onFocus={e => e.currentTarget.select()}
           onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') e.currentTarget.blur() }}
           onPointerDown={e => e.stopPropagation()}
-          style={{ ...text, position: 'relative', width: '100%', height: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: text.fontSize, fontWeight: text.fontWeight, overflow: 'hidden' }}
+          style={{ ...text, position: 'relative', zIndex: 1, width: '100%', height: centred ? undefined : '100%', maxHeight: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: text.fontSize, fontWeight: text.fontWeight, textDecoration: text.textDecoration, overflow: 'hidden' }}
         />
       ) : (
-        <div style={{ ...text, position: 'relative', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', overflow: 'hidden', maxHeight: '100%' }}>
+        // A text box's text spans the box, so its alignment has room to act; in the
+        // flex box it would otherwise shrink to the width of its own words.
+        <div style={{ ...text, position: 'relative', zIndex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', overflow: 'hidden', maxHeight: '100%', width: s.kind === 'text' || centred ? '100%' : undefined }}>
           {s.text || (s.kind === 'text' ? <span style={{ opacity: 0.4 }}>{t('components.canvas.text_placeholder')}</span> : null)}
         </div>
       )}

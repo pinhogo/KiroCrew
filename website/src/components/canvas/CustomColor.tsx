@@ -1,6 +1,6 @@
 /**
  * A custom colour picker, after FigJam's: a hex field with an eyedropper, a hue
- * bar and a saturation and brightness square. Dark like the swatch panel it sits in.
+ * bar and a saturation and brightness square, in the swatch panel it sits in.
  *
  * It reports every change as it happens (`final` false while a handle is being
  * dragged or a hex typed) and once more when the gesture ends (`final` true), so
@@ -10,6 +10,7 @@
 import { Pipette } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useImeGuard } from '../../hooks/useImeGuard'
 
 import { hexToHsv, hsvToHex, toHex, type Hsv } from './colorMath'
 
@@ -21,9 +22,6 @@ interface Props {
   onHex: (hex: string, final: boolean) => void
 }
 
-// Fixed, like the swatch panel the picker sits in.
-const FIELD = '#363636'
-const RING = '#9747FF'
 
 interface EyeDropperApi { open: () => Promise<{ sRGBHex: string }> }
 const eyeDropper = (): EyeDropperApi | null => {
@@ -53,6 +51,7 @@ function useDrag(onMove: (x: number, y: number, final: boolean) => void) {
 
 export default function CustomColor({ hex, start, onHex }: Props) {
   const { t } = useTranslation()
+  const ime = useImeGuard()
   const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(hex ?? start))
   const [text, setText] = useState(hex ?? start)
   const typing = useRef(false)
@@ -82,28 +81,31 @@ export default function CustomColor({ hex, start, onHex }: Props) {
         {dropper && (
           <button type="button" aria-label={t('components.canvas.eyedropper_label')} title={t('components.canvas.eyedropper')}
             onClick={() => { void dropper.open().then(r => { const h = toHex(r.sRGBHex); if (h) apply(hexToHsv(h), true) }).catch(() => undefined) }}
-            className="rounded-lg p-1.5 hover:bg-white/10" style={{ color: '#FFFFFF' }}>
+            className="rounded-lg p-1.5 text-text hover:bg-bg-hover">
             <Pipette size={16} />
           </button>
         )}
         <input aria-label={t('components.canvas.hex_colour')} value={text} spellCheck={false} maxLength={9}
-          onFocus={e => { typing.current = true; e.currentTarget.select() }}
           onChange={e => {
             setText(e.target.value)
             const h = toHex(e.target.value)
             if (h) { setHsv(hexToHsv(h)); dirty.current = true; onHex(h, false) }
           }}
-          onBlur={() => {
-            typing.current = false
-            const h = toHex(text) ?? current
-            setText(h)
-            // Record what typing showed, as one step; or a colour typed and left unchanged is nothing to record.
-            if (dirty.current || h !== hex) onHex(h, true)
-            dirty.current = false
-          }}
-          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') e.currentTarget.blur() }}
-          className="w-full rounded-lg px-2.5 py-1.5 text-[13px] outline-none"
-          style={{ background: FIELD, color: '#FFFFFF', border: `1px solid ${text && !toHex(text) ? '#F2573C' : 'transparent'}` }} />
+          // An IME's committing Enter must not leave the field, so Enter commits only once claimed.
+          {...ime.bindComposition<HTMLInputElement>({
+            onFocus: e => { typing.current = true; e.currentTarget.select() },
+            onBlur: () => {
+              typing.current = false
+              const h = toHex(text) ?? current
+              setText(h)
+              // Record what typing showed, as one step; or a colour typed and left unchanged is nothing to record.
+              if (dirty.current || h !== hex) onHex(h, true)
+              dirty.current = false
+            },
+          })}
+          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter' && ime.claimEnter(e)) e.currentTarget.blur() }}
+          className="w-full rounded-lg px-2.5 py-1.5 text-[13px]"
+          style={{ background: 'var(--bg)', color: 'var(--text)', border: `1px solid ${text && !toHex(text) ? 'var(--danger)' : 'var(--border)'}` }} />
       </div>
       <div ref={hue.ref} data-testid="custom-hue" role="slider" aria-label={t('components.canvas.hue')} aria-valuemin={0} aria-valuemax={360} aria-valuenow={Math.round(hsv.h)}
         onPointerDown={hue.onPointerDown} onPointerMove={hue.onPointerMove} onPointerUp={hue.onPointerUp}
@@ -120,7 +122,7 @@ export default function CustomColor({ hex, start, onHex }: Props) {
           touchAction: 'none',
         }}>
         <span className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: current, border: '2.5px solid #FFFFFF', boxShadow: `0 1px 3px rgba(0,0,0,.4), 0 0 0 1px ${RING}33` }} />
+          style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: current, border: '2.5px solid #FFFFFF', boxShadow: '0 1px 3px rgba(0,0,0,.4), 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent)' }} />
       </div>
     </div>
   )

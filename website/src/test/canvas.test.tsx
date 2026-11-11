@@ -2,10 +2,10 @@
  * The canvas artifact's editor: its data (parse, connector geometry, edits) and
  * the editor driven through real pointer and key events.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
-import CanvasEditor from '../components/canvas/CanvasEditor'
+import CanvasEditor, { noteTilt } from '../components/canvas/CanvasEditor'
 import {
   emptyCanvas, labelScale, parseCanvas, sectionMembers, serializeCanvas, shapeAt, wheelPanStep, wheelZoomFactor,
   type Canvas, type Shape,
@@ -14,6 +14,7 @@ import { fitDash, ovalDash } from '../components/canvas/dashFit'
 import { darker, hexToHsv, hsvToHex, inkOn, luminance, toHex } from '../components/canvas/colorMath'
 import { shapeLook } from '../components/canvas/shapeLook'
 import { restack } from '../components/canvas/canvasEditing'
+import { STICKER_EDGE, STICKER_EDGE_W } from '../components/canvas/canvasPaint'
 import { connectorRoute, connectorSides, movedSegment, segmentDrag } from '../components/canvas/connectorGeometry'
 
 const sticky = (id: string, x: number, y: number, text = ''): Shape => ({ id, kind: 'sticky', x, y, w: 200, h: 200, text, color: 'yellow' })
@@ -44,15 +45,16 @@ describe('canvas model', () => {
     expect(connectorSides(sticky('a', 0, 0), sticky('b', 0, 400))).toEqual(['bottom', 'top'])
   })
 
-  it('the drawn line stops short of an arrowhead\'s shape, while the route\'s ends stay on the sides', () => {
+  it('the drawn line starts and stops clear of its shapes, further for an arrowhead, while the route\'s ends stay on the sides', () => {
     const a = sticky('a', 0, 0)
     const b = sticky('b', 400, 0)
     const arrow = connectorRoute(a, b, { line: 'straight' })
-    expect(arrow.d).toBe('M200,100 L391,100')
+    // 12 clear of each sticker's edge, and 9 more where an arrowhead sits.
+    expect(arrow.d).toBe('M212,100 L379,100')
     expect(arrow.b).toEqual({ x: 400, y: 100 })
-    expect(connectorRoute(a, b, { line: 'straight', arrows: 'none' }).d).toBe('M200,100 L400,100')
-    expect(connectorRoute(a, b, { line: 'straight', arrows: 'both' }).d).toBe('M209,100 L391,100')
-    expect(connectorRoute(a, b, { line: 'curve' }).d).toMatch(/ 391,100$/)
+    expect(connectorRoute(a, b, { line: 'straight', arrows: 'none' }).d).toBe('M212,100 L388,100')
+    expect(connectorRoute(a, b, { line: 'straight', arrows: 'both' }).d).toBe('M221,100 L379,100')
+    expect(connectorRoute(a, b, { line: 'curve' }).d).toMatch(/ 379,100$/)
   })
 
   it('an elbow from a side to a side turns once, with a rounded corner', () => {
@@ -430,6 +432,102 @@ describe('the canvas', () => {
     }
   })
 
+  it('shapes are stickers: a white edge by default, a picked colour paints the edge, and only dashes make an outline', () => {
+    const rect: Shape = { id: 'r', kind: 'rect', x: 0, y: 0, w: 200, h: 120, text: '', color: 'blue' }
+    const red: Shape = { ...rect, id: 'o', x: 400, borderColor: 'red' }
+    const dashed: Shape = { ...rect, id: 'd', x: 800, border: 'dashed' }
+    render(<Harness initial={{ ...emptyCanvas(), shapes: [rect, red, dashed], connectors: [{ id: 'c1', from: 'r', to: 'o' }] }} />)
+    const [plain, edged, outlined] = screen.getAllByTestId('canvas-shape')
+    expect(plain.style.boxShadow).toContain(`${STICKER_EDGE_W}px ${STICKER_EDGE}`)
+    expect(plain.style.border).toBe('')
+    expect(edged.style.boxShadow).toContain(`${STICKER_EDGE_W}px #F2573C`)
+    expect(outlined.style.boxShadow).toBe('')
+    expect(outlined.style.border).toContain('solid')
+    // A line carries no halo: it stops short of the shapes instead.
+    const paths = screen.getByTestId('canvas-connector').querySelectorAll('path')
+    expect([...paths].some(p => p.getAttribute('stroke') === STICKER_EDGE)).toBe(false)
+  })
+
+  it('a text box gets its own toolbar: colour, size, bold, strikethrough and alignment, each kept in the file', () => {
+    const text: Shape = { id: 't', kind: 'text', x: 0, y: 0, w: 220, h: 40, text: 'Hello', color: 'smoke' }
+    render(<Harness initial={{ ...emptyCanvas(), shapes: [text] }} />)
+    press(20, 20)
+    release(20, 20)
+    expect(screen.getByTestId('canvas-text-toolbar')).toBeTruthy()
+    expect(screen.queryByTestId('canvas-toolbar')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Text size'))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Huge' }))
+    // The box grows to hold a line at the new size.
+    expect(latest().shapes[0]).toMatchObject({ fontSize: 64 })
+    expect(latest().shapes[0].h).toBeGreaterThanOrEqual(64)
+    fireEvent.click(screen.getByLabelText('Bold'))
+    fireEvent.click(screen.getByLabelText('Strikethrough'))
+    fireEvent.click(screen.getByLabelText('Alignment'))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Align right' }))
+    expect(latest().shapes[0]).toMatchObject({ bold: true, strike: true, align: 'right' })
+    const shown = screen.getByText('Hello') as HTMLElement
+    expect(shown.style.textAlign).toBe('right')
+    expect(shown.style.fontWeight).toBe('700')
+    expect(reread(serializeCanvas(latest())).shapes[0]).toMatchObject({ fontSize: 64, bold: true, strike: true, align: 'right' })
+  })
+
+  it('a shape shows text alignment and size only once it has text, and centres its text by default', () => {
+    const empty: Shape = { id: 'r', kind: 'rect', x: 0, y: 0, w: 240, h: 120, text: '', color: 'blue' }
+    render(<Harness initial={{ ...emptyCanvas(), shapes: [empty] }} />)
+    press(100, 60)
+    release(100, 60)
+    expect(screen.queryByLabelText('Alignment')).toBeNull()
+    expect(screen.queryByLabelText('Text size')).toBeNull()
+    act(() => { fireEvent.keyDown(canvas(), { key: 'Enter' }) })
+    fireEvent.change(screen.getByTestId('canvas-shape-editor'), { target: { value: 'Ship it' } })
+    act(() => { (screen.getByTestId('canvas-shape-editor') as HTMLTextAreaElement).blur() })
+    expect((screen.getByText('Ship it') as HTMLElement).style.textAlign).toBe('center')
+    fireEvent.click(screen.getByLabelText('Alignment'))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Align left' }))
+    expect(latest().shapes[0].align).toBe('left')
+    // Back to the kind's default drops the field.
+    fireEvent.click(screen.getByLabelText('Alignment'))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Align centre' }))
+    expect(latest().shapes[0].align).toBeUndefined()
+    fireEvent.click(screen.getByLabelText('Text size'))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Large' }))
+    // A shape keeps its size; only its text changes.
+    expect(latest().shapes[0]).toMatchObject({ fontSize: 28, w: 240, h: 120 })
+  })
+
+  it('a sticky is taped, dog-eared paper with a steady lean that straightens while it is typed in', () => {
+    render(<Harness initial={{ ...emptyCanvas(), shapes: [sticky('n1', 0, 0, 'Idea')] }} />)
+    const note = screen.getByTestId('canvas-shape')
+    expect(screen.getByTestId('sticky-tape')).toBeTruthy()
+    expect(note.style.boxShadow).toBe('')
+    expect(note.style.transform).toBe(`rotate(${noteTilt('n1')}deg)`)
+    expect(Math.abs(noteTilt('n1'))).toBeLessThanOrEqual(3)
+    expect(noteTilt('n1')).toBe(noteTilt('n1'))
+    act(() => { fireEvent.doubleClick(canvas(), at(50, 50)) })
+    expect(screen.getByTestId('canvas-shape').style.transform).toBe('')
+    // Only the drawing leans: no border picker for paper notes.
+    act(() => { (screen.getByTestId('canvas-shape-editor') as HTMLTextAreaElement).blur() })
+    expect(screen.queryByLabelText('Border')).toBeNull()
+  })
+
+  it('a dock tool shows its name and key in a tooltip after the pointer rests on it, and only that one', () => {
+    vi.useFakeTimers()
+    try {
+      render(<Harness initial={emptyCanvas()} />)
+      fireEvent.pointerEnter(screen.getByTestId('tool-text'))
+      expect(screen.queryByTestId('canvas-tool-tip')).toBeNull()
+      act(() => { vi.advanceTimersByTime(600) })
+      const tips = screen.getAllByTestId('canvas-tool-tip')
+      expect(tips).toHaveLength(1)
+      expect(tips[0].textContent).toContain('Text')
+      expect(tips[0].textContent).toContain('T')
+      fireEvent.pointerLeave(screen.getByTestId('tool-text'))
+      expect(screen.queryByTestId('canvas-tool-tip')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('a selected connector shows its end handles and a toolbar that restyles it, one undo step each', () => {
     render(<Harness initial={{ ...emptyCanvas(), shapes: [sticky('a', 0, 0), sticky('b', 400, 0)], connectors: [{ id: 'c1', from: 'a', to: 'b' }] }} />)
     expect(screen.getByTestId('canvas-connector').dataset.line).toBe('elbow')
@@ -537,7 +635,8 @@ describe('the canvas', () => {
     expect(screen.getByRole('radio', { name: 'Solid' }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByRole('radio', { name: 'Thick' }))
     expect(latest().shapes[0].weight).toBe('thick')
-    expect(screen.getByTestId('canvas-shape').style.borderWidth).toBe('6px')
+    // On a sticker the weight is the edge's: thick is 8 wide.
+    expect(screen.getByTestId('canvas-shape').style.boxShadow).toContain('8px')
     fireEvent.click(screen.getByRole('radio', { name: 'Dashed' }))
     expect(latest().shapes[0].border).toBe('dashed')
     // Drawn as SVG strokes: each side fitted with whole dashes, the corners solid.
@@ -550,9 +649,9 @@ describe('the canvas', () => {
     // The fill keeps its own colour.
     expect(latest().shapes[0].color).toBe('blue')
     fireEvent.click(screen.getByLabelText('Border'))
-    fireEvent.click(screen.getByRole('radio', { name: /Match fill/ }))
+    fireEvent.click(screen.getByRole('radio', { name: 'White (default)' }))
     expect(latest().shapes[0].borderColor).toBeUndefined()
-    // The panel stays open after a mode or "Match fill", like FigJam's.
+    // The panel stays open after a mode or the default, like FigJam's.
     fireEvent.click(screen.getByRole('radio', { name: 'None' }))
     expect(latest().shapes[0].border).toBe('none')
     fireEvent.click(screen.getByRole('radio', { name: 'Solid' }))
@@ -568,14 +667,21 @@ describe('the canvas', () => {
     expect(latest().shapes[0].kind).toBe('ellipse')
   })
 
-  it('a shape\'s outline follows its fill unless it has a colour of its own, and can be dashed or gone', () => {
+  it('a solid shape is a sticker whose edge takes the border colour and weight; only dashes bring an outline back', () => {
     const base = { color: 'blue' as const }
-    expect(shapeLook(base)).toMatchObject({ fill: '#3FAAFF', border: '#0B78D6', dashed: false, width: 3.5, solid: true })
+    expect(shapeLook(base)).toMatchObject({ fill: '#3FAAFF', border: 'transparent', width: 0, dashed: false, solid: true, sticker: true, edge: '#FFFFFF', edgeWidth: 5 })
+    // The border colour and weight paint the edge, black as black; none drops the edge but keeps the lift.
+    expect(shapeLook({ ...base, weight: 'thick', borderColor: 'black' })).toMatchObject({ sticker: true, edge: '#1E1E1E', edgeWidth: 8 })
+    expect(shapeLook({ ...base, border: 'none' })).toMatchObject({ sticker: true, edgeWidth: 0 })
+    // Dashes are an outline, in a deeper shade of the fill.
+    expect(shapeLook({ ...base, border: 'dashed', weight: 'thick' })).toMatchObject({ border: '#0B78D6', width: 6, sticker: false })
+    // An unfilled or see-through shape keeps its outline: an edge around nothing reads as a hole.
+    expect(shapeLook({ ...base, fill: 'transparent' }).sticker).toBe(false)
     expect(shapeLook({ ...base, fill: 'none' })).toMatchObject({ fill: 'transparent', border: '#3FAAFF' })
     expect(shapeLook({ color: 'black', fill: 'none' }).border).toBe('var(--text)')
-    expect(shapeLook({ ...base, borderColor: 'red' }).border).toBe('#F2573C')
+    expect(shapeLook({ ...base, border: 'dashed', borderColor: 'red' }).border).toBe('#F2573C')
     expect(shapeLook({ ...base, border: 'dashed', weight: 'thin' })).toMatchObject({ dashed: true, width: 2 })
-    expect(shapeLook({ ...base, border: 'none', borderColor: 'red' }).border).toBe('transparent')
+    expect(shapeLook({ ...base, fill: 'none', border: 'none', borderColor: 'red' }).border).toBe('transparent')
   })
 
   it('dashed outlines are drawn for every kind of shape that has a border, and not for a solid one', () => {
@@ -636,12 +742,13 @@ describe('the canvas', () => {
   })
 
   it('a custom fill colour picks its own darker border and a readable ink', () => {
-    expect(shapeLook({ color: 'blue', hex: '#FFC83D' })).toMatchObject({ fill: '#FFC83D', border: darker('#FFC83D'), ink: '#1F2328' })
+    expect(shapeLook({ color: 'blue', hex: '#FFC83D' })).toMatchObject({ fill: '#FFC83D', sticker: true, ink: '#1F2328' })
+    expect(shapeLook({ color: 'blue', hex: '#FFC83D', border: 'dashed' }).border).toBe(darker('#FFC83D'))
     expect(shapeLook({ color: 'blue', hex: '#1E2A5E' }).ink).toBe('#FFFFFF')
     // With no fill, the custom colour is the outline itself; a border colour of its own wins over both.
     expect(shapeLook({ color: 'blue', hex: '#FFC83D', fill: 'none' }).border).toBe('#FFC83D')
-    expect(shapeLook({ color: 'blue', hex: '#FFC83D', borderHex: '#112233' }).border).toBe('#112233')
-    expect(shapeLook({ color: 'blue', hex: '#FFC83D', borderColor: 'red' }).border).toBe('#F2573C')
+    expect(shapeLook({ color: 'blue', hex: '#FFC83D', borderHex: '#112233' }).edge).toBe('#112233')
+    expect(shapeLook({ color: 'blue', hex: '#FFC83D', borderColor: 'red' }).edge).toBe('#F2573C')
   })
 
   it('the free colour picker sets a fill colour live, as one undo step, and a swatch swaps it out', () => {
@@ -685,8 +792,8 @@ describe('the canvas', () => {
     fireEvent.change(screen.getByLabelText('Hex colour'), { target: { value: '#00AA55' } })
     fireEvent.blur(screen.getByLabelText('Hex colour'))
     expect(latest().shapes[0]).toMatchObject({ hex: '#FF0000', borderHex: '#00AA55' })
-    // Picking "Match fill" gives the outline back to the fill's darker shade.
-    fireEvent.click(screen.getByRole('radio', { name: /Match fill/ }))
+    // Picking the default gives the sticker its white edge back.
+    fireEvent.click(screen.getByRole('radio', { name: 'White (default)' }))
     expect(latest().shapes[0].borderHex).toBeUndefined()
     expect(screen.getByTestId('custom-hue').getAttribute('aria-valuenow')).toBeTruthy()
     expect(screen.getByTestId('custom-square')).toBeTruthy()

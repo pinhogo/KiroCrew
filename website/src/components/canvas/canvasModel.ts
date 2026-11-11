@@ -26,6 +26,22 @@ export type FillMode = 'solid' | 'transparent' | 'none'
 export type StrokeWeight = 'thin' | 'medium' | 'thick'
 /** A shape's outline: solid, dashed, or none. */
 export type BorderStyle = 'solid' | 'dashed' | 'none'
+export type TextAlign = 'left' | 'center' | 'right'
+
+/** FigJam's named text sizes, in canvas units; any other size is a custom one. */
+export const TEXT_SIZES = { small: 16, medium: 20, large: 28, xlarge: 40, huge: 64 } as const
+export type TextSizeName = keyof typeof TEXT_SIZES
+export const DEFAULT_TEXT_SIZE = TEXT_SIZES.medium
+/** A kind's text size when none is set: a text box is medium, the text inside a shape or sticky small. */
+export const defaultFontSize = (kind: ShapeKind): number => (kind === 'text' ? DEFAULT_TEXT_SIZE : TEXT_SIZES.small)
+/** A stored text size, clamped and kept only when it differs from the kind's default. */
+export function fontSizeOf(kind: ShapeKind, v: unknown): { fontSize?: number } {
+  if (kind === 'section' || typeof v !== 'number' || !Number.isFinite(v)) return {}
+  const px = Math.round(Math.min(MAX_TEXT_SIZE, Math.max(MIN_TEXT_SIZE, v)))
+  return px === defaultFontSize(kind) ? {} : { fontSize: px }
+}
+export const MIN_TEXT_SIZE = 8
+export const MAX_TEXT_SIZE = 400
 
 export interface Shape {
   id: string
@@ -50,6 +66,36 @@ export interface Shape {
   hex?: string
   /** A custom outline colour, `#RRGGBB`. Overrides `borderColor`. */
   borderHex?: string
+  /** A text box only: its text colour; unset, the theme's ink. */
+  ink?: Swatch
+  /** A text box only: a custom text colour, `#RRGGBB`. Overrides `ink`. */
+  inkHex?: string
+  /** The text's size in canvas units; unset is the kind's default (see `defaultFontSize`). */
+  fontSize?: number
+  bold?: boolean
+  strike?: boolean
+  /** How the text lines up; unset is the kind's own default (see `defaultAlign`). */
+  align?: TextAlign
+}
+
+/** Where a kind's text lines up when nothing says otherwise: shapes centre it, as in FigJam. */
+export const defaultAlign = (kind: ShapeKind): TextAlign => (kind === 'rect' || kind === 'ellipse' || kind === 'diamond' ? 'center' : 'left')
+
+/** A stored alignment, kept only when it differs from the kind's default. */
+export function alignOf(kind: ShapeKind, v: unknown): { align?: TextAlign } {
+  return (v === 'left' || v === 'center' || v === 'right') && v !== defaultAlign(kind) && kind !== 'section' ? { align: v } : {}
+}
+
+/** A text box's style fields to spread onto a shape: only those valid and not the default. */
+export function textStyleOf(o: Record<string, unknown>): Partial<Pick<Shape, 'ink' | 'inkHex' | 'bold' | 'strike' | 'align'>> {
+  const ink = toSwatch(o.ink)
+  const inkHex = toHex(o.inkHex)
+  return {
+    ...(ink ? { ink } : {}),
+    ...(inkHex ? { inkHex } : {}),
+    ...(o.bold === true ? { bold: true } : {}),
+    ...(o.strike === true ? { strike: true } : {}),
+  }
 }
 
 export type ConnectorSide = 'top' | 'right' | 'bottom' | 'left'
@@ -200,6 +246,9 @@ export function parseCanvas(raw: string): ParsedCanvas {
       color: toSwatch(o.color) ?? 'yellow',
       ...(o.locked === true ? { locked: true } : {}),
       ...lookOf(o),
+      ...(kind === 'text' ? textStyleOf(o) : {}),
+      ...alignOf(kind, o.align),
+      ...fontSizeOf(kind, o.fontSize),
     })
   }
   const ids = new Set(shapes.map(s => s.id))

@@ -1,10 +1,12 @@
 /**
- * The canvas's right-click menu, after FigJam's: copy and paste, delete,
- * stacking order, lock. Dark in every theme, like FigJam's.
+ * The canvas's right-click menu: copy and paste, delete, stacking order, lock.
+ * A floating sticker in the app's own theme; the row under the pointer or the
+ * keyboard is a purple sticker of its own.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { FLOAT_SHADOW } from './canvasPaint'
 
 export type MenuAction =
   | 'copy' | 'paste' | 'delete'
@@ -14,11 +16,6 @@ export type MenuAction =
 interface Item { action: MenuAction; label: string; keys: string; needsSelection?: boolean }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
-
-// FigJam's menu is dark in every theme, so these are fixed rather than tokens.
-const PANEL = '#1E1E1E'
-const HOVER = '#0C8CE9'
-const RULE = 'rgba(255,255,255,.12)'
 
 interface Props {
   /** Where the menu opens, in the canvas's own px. */
@@ -100,20 +97,15 @@ export default function CanvasContextMenu({ x, y, bounds, hasSelection, canPaste
   return (
     <div ref={ref} role="menu" tabIndex={-1} aria-label={t('components.canvas.menu_label')} data-canvas-ui data-testid="canvas-context-menu" onKeyDown={onKeyDown}
       onPointerDown={e => e.stopPropagation()} onContextMenu={e => e.preventDefault()}
-      className="absolute w-[240px] rounded-xl py-1.5 shadow-2xl"
-      style={{ left: pos.x, top: pos.y, background: PANEL, color: '#FFFFFF', zIndex: 20, fontSize: 13 }}>
+      className="absolute w-[240px] rounded-2xl bg-bg-elevated py-1.5 text-text"
+      style={{ left: pos.x, top: pos.y, zIndex: 20, fontSize: 13, boxShadow: FLOAT_SHADOW }}>
       {groups.map((group, g) => (
-        <div key={g} style={g ? { borderTop: `1px solid ${RULE}`, marginTop: 6, paddingTop: 6 } : undefined}>
+        <div key={g} className={g ? 'mt-1.5 border-t border-border pt-1.5' : undefined}>
           {group.map(it => (
             <button key={it.action} type="button" role="menuitem" disabled={!enabled(it)} onClick={() => { onAction(it.action); onClose() }}
-              className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left outline-none disabled:opacity-40"
-              style={{ width: 'calc(100% - 12px)', margin: '0 6px' }}
-              onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = HOVER }}
-              onMouseLeave={e => { e.currentTarget.style.background = '' }}
-              onFocus={e => { e.currentTarget.style.background = HOVER }}
-              onBlur={e => { e.currentTarget.style.background = '' }}>
+              className="group mx-1.5 flex w-[calc(100%-12px)] items-center justify-between rounded-[10px] px-3 py-1.5 text-left outline-none enabled:hover:bg-accent enabled:hover:text-accent-fg focus-visible:bg-accent focus-visible:text-accent-fg disabled:opacity-40">
               <span>{it.label}</span>
-              <span style={{ opacity: 0.6, fontSize: 12 }}>{it.keys}</span>
+              <span className="text-[12px] text-muted group-enabled:group-hover:text-accent-fg group-focus-visible:text-accent-fg">{it.keys}</span>
             </button>
           ))}
         </div>
