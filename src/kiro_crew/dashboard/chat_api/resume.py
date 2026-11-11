@@ -1595,12 +1595,12 @@ async def _resume_slot_from_history_noted(
             # real read rather than a constant. From the fresh re-read, as below.
             slot._app = str(post_read_meta["app"])
         if containment is not None:
-            # Same for the channel link: the resume core binds only a cron
-            # transcript's own ``linked_session_key`` (the restart path and the
-            # History surfacing hydrate the rest), so the hook's link check would
-            # read an empty field whatever the line says. Restored from the FRESH
-            # re-read (``post_read_meta``), not the pre-transcript snapshot, so a
-            # link written to the line inside the read window is what the hook
+            # Same for the channel link: the resume core binds only a cron or
+            # task-runner transcript's own ``linked_session_key`` (the restart path
+            # and the History surfacing hydrate the rest), so the hook's link check
+            # would read an empty field whatever the line says. Restored from the
+            # FRESH re-read (``post_read_meta``), not the pre-transcript snapshot, so
+            # a link written to the line inside the read window is what the hook
             # sees; a channel-born key marks the origin the way the surfacing path
             # does.
             fresh_link = str(post_read_meta.get("linked_session_key") or "")
