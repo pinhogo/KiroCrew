@@ -873,6 +873,11 @@ class TestAdoptExistingInstance:
         monkeypatch.setattr(bmod, "_app_enabled_state", lambda name: True)
         return spawn_root
 
+    @staticmethod
+    def _spawned(pid: int) -> None:
+        """Record the spawn row the gateway writes for ``pid`` (see ``_record_app_pid``)."""
+        bmod._write_pidfile({"adoptee": {"pid": pid, "start_time": f"st-{pid}", "port": 1}})
+
     def _run(self, port: int) -> AppProcess | None:
         return bmod._start_app_backend_body("adoptee", _manifest("server.py", port=str(port)))
 
@@ -890,6 +895,7 @@ class TestAdoptExistingInstance:
             ],
         )
         monkeypatch.setattr(bmod, "_proc_start_time", lambda pid: f"st-{pid}")
+        self._spawned(111)
         ap = self._run(port)
         assert ap is not None
         assert ap.proc is None
@@ -900,6 +906,21 @@ class TestAdoptExistingInstance:
         assert ap.adopted_start_times == {111: "st-111", 222: "st-222"}
         assert bmod._processes["adoptee"] is ap
         assert bmod._allocated_ports["adoptee"] == port
+
+    def test_a_listener_the_gateway_did_not_spawn_is_not_adopted(
+        self, occupied: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Answering the declared port and health path is not provenance. With
+        no pidfile row naming this listener, e.g. an uninstall survivor, adoption is refused."""
+
+        monkeypatch.setattr(bmod, "loopback_urlopen", lambda *_a, **_k: _FakeResp(200))
+        _stub_listeners(monkeypatch, [bmod.platform_compat.PortListener(111, "127.0.0.1", "4")])
+        monkeypatch.setattr(bmod, "_proc_start_time", lambda pid: f"st-{pid}")
+        bmod._write_pidfile({"other": {"pid": 111, "start_time": "st-111", "port": 1}})
+        with caplog.at_level(logging.WARNING):
+            assert self._run(bmod._MIN_PORT + 40) is None
+        assert any("not spawned by this gateway" in r.message for r in caplog.records)
+        assert "adoptee" not in bmod._processes
 
     def test_adoption_records_only_the_probed_address_owner(
         self, occupied: Any, monkeypatch: pytest.MonkeyPatch
@@ -921,6 +942,7 @@ class TestAdoptExistingInstance:
                 bmod.platform_compat.PortListener(999, "192.168.1.5", "4"),
             ],
         )
+        self._spawned(111)
         ap = self._run(bmod._MIN_PORT + 16)
         assert ap is not None
         assert ap.adopted_pids == [111]
@@ -941,6 +963,7 @@ class TestAdoptExistingInstance:
                 bmod.platform_compat.PortListener(999, "*", "6"),
             ],
         )
+        self._spawned(111)
         ap = self._run(bmod._MIN_PORT + 17)
         assert ap is not None
         assert ap.adopted_pids == [111]
@@ -957,6 +980,7 @@ class TestAdoptExistingInstance:
         monkeypatch.setattr(bmod, "loopback_urlopen", lambda *_a, **_k: _FakeResp(200))
         monkeypatch.setattr(bmod, "_proc_start_time", lambda pid: f"st-{pid}")
         _stub_listeners(monkeypatch, [bmod.platform_compat.PortListener(333, "127.0.0.1", "4")])
+        self._spawned(333)
         ap = self._run(bmod._MIN_PORT + 7)
         assert ap is not None
         assert ap.adopted_pids == [333]

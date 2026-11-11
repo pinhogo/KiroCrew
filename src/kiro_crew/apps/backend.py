@@ -81,7 +81,11 @@ if "_PART_MODULES" in globals():
         _importlib.reload(_sys.modules[_reloaded])
     del _reloaded
 
-from kiro_crew.apps.backend_runtime.pidfile import _proc_start_time, _record_app_pid  # noqa: E402
+from kiro_crew.apps.backend_runtime.pidfile import (  # noqa: E402
+    _proc_start_time,
+    _read_pidfile,
+    _record_app_pid,
+)
 from kiro_crew.apps.backend_runtime.ports import (  # noqa: E402
     _MAX_PORT,
     _MIN_PORT,
@@ -597,13 +601,6 @@ def _start_app_backend_body(app_name: str, manifest: Any) -> AppProcess | None:
             healthy = _probe_adoption_health(port, manifest.backend.healthCheck)
 
             if healthy:
-                try:
-                    sel().log_api_access(
-                        caller="gateway", operation="app_backend_adopt",
-                        outcome="adopted", resources=f"{app_name} port={port}",
-                    )
-                except Exception as exc:
-                    logger.debug("SEL audit failed for app %s backend adopt: %s", app_name, exc)
                 # Record owning PIDs at adoption time, scoped to the listener
                 # the health probe actually reached. The probe above only ever
                 # talks to 127.0.0.1:<port>; loopback_owner_pids mirrors the
@@ -619,6 +616,32 @@ def _start_app_backend_body(app_name: str, manifest: Any) -> AppProcess | None:
                 if adopted is None:
                     return None
                 adopted_pids, adopted_start_times = adopted
+                # A health answer says nothing about who started the listener:
+                # adopt only a listener the pidfile row this gateway wrote at spawn names.
+                # shortcut: only the recorded leader pid counts, so a spawn whose leader
+                # does not own the socket is refused; widen via spawn_instance if needed.
+                row = _read_pidfile().get(app_name) or {}
+                leader = row.get("pid")
+                recorded = (
+                    leader in adopted_pids
+                    and row.get("start_time") is not None
+                    and row.get("start_time") == adopted_start_times.get(leader)
+                )
+                try:
+                    sel().log_api_access(
+                        caller="gateway", operation="app_backend_adopt",
+                        outcome="adopted" if recorded else "refused_unrecorded",
+                        resources=f"{app_name} port={port}",
+                    )
+                except Exception as exc:
+                    logger.debug("SEL audit failed for app %s backend adopt: %s", app_name, exc)
+                if not recorded:
+                    logger.warning(
+                        "App %s: not adopting the instance on port %d (pids %s): "
+                        "not spawned by this gateway. Stop that process, or free the port.",
+                        app_name, port, adopted_pids,
+                    )
+                    return None
                 logger.info("App %s: healthy instance already on port %d — adopting (pids=%s)", app_name, port, adopted_pids)
                 ap = AppProcess(
                     app_name=app_name, port=port, pid=0, proc=None,
@@ -1634,7 +1657,6 @@ if _typing.TYPE_CHECKING:
         _forget_app_pid_if,
         _pidfile_lock,
         _pidfile_path,
-        _read_pidfile,
         _write_pidfile,
         atomic_write,
         json,
