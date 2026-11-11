@@ -99,6 +99,30 @@ def test_authorize_publishes_only_inside_the_hidden_policy_directory(tmp_path, m
     assert verify_secret_authorizations(doc["authorizations"], doc[SIGNATURE_FIELD])
 
 
+def test_remove_of_an_absent_name_reports_nothing_removed_and_does_not_publish(
+    tmp_path, monkeypatch, capsys
+):
+    """`--remove` of a name that was never authorized says so and writes no policy.
+
+    Before this fix it printed "Removed ... for 'X'." and audited action=remove
+    even though nothing was removed. Now it reports nothing was removed, exits 0
+    (idempotent `--remove` still succeeds), and leaves no signed policy behind.
+    """
+    # First authorize one real name so the policy exists and is validly signed.
+    _run_authorize(monkeypatch, tmp_path, secret_name="REAL", origin="https://api.example.com")
+    before = policy_path(tmp_path).read_text(encoding="utf-8")
+    capsys.readouterr()  # drop the authorize output
+
+    # Removing an absent name is a no-op: accurate message, exit 0, policy untouched.
+    _run_authorize(monkeypatch, tmp_path, secret_name="NEVER_SET", remove=True)
+    out = capsys.readouterr().out
+    assert "nothing removed" in out
+    assert "NEVER_SET" in out
+    assert "Removed" not in out
+    # The signed policy is byte-identical: no re-sign, no dropped entry.
+    assert policy_path(tmp_path).read_text(encoding="utf-8") == before
+
+
 def test_authorize_refuses_without_the_gateway_owned_directory(tmp_path, monkeypatch):
     """The CLI never creates the hidden directory: one it created while a sandbox
     was running would be visible, unmasked, inside that sandbox."""

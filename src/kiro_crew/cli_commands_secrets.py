@@ -266,6 +266,12 @@ def _authorize_txn(args: "argparse.Namespace", path) -> None:
 
     name = args.name
     if args.remove:
+        if name not in authorizations:
+            # Nothing to remove: say so rather than report a removal that did not
+            # happen (and do not re-sign or audit an unchanged policy). Exit 0 so
+            # an idempotent `--remove` in a script still succeeds.
+            print(f"No mediated-request authorization for {name!r}; nothing removed.")
+            return
         authorizations.pop(name, None)
     else:
         try:
