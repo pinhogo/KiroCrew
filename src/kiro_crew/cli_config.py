@@ -281,7 +281,18 @@ def _run_config_cmd(args: argparse.Namespace) -> None:
         if encoded is not None and file_path:
             print("❌ --value-base64 cannot be combined with --file", file=sys.stderr)
             sys.exit(1)
+        if file_path and args.key is not None:
+            # ``--file`` replaces the whole document, so a positional key/value
+            # alongside it has nothing well-defined to apply to. Keep the
+            # ``--file`` write (the behaviour today) and say the key/value was
+            # ignored, rather than silently dropping it.
+            print(
+                f"⚠️  ignoring the key/value ({args.key}) given with --file: "
+                "--file replaces the whole document",
+                file=sys.stderr,
+            )
         if file_path:
+            use_local = getattr(args, "local", False)
             fp = Path(file_path).expanduser().resolve()
 
             try:
@@ -304,16 +315,26 @@ def _run_config_cmd(args: argparse.Namespace) -> None:
                 sys.exit(1)
 
             def _mutate_from_file(cur: dict) -> dict:
-                _refuse_missing_workspace_dirs(data, cur)
+                # The base config must hold every workspace dir it names; the
+                # overlay is a partial document that only pins the keys it carries,
+                # so that whole-document check is for the base write alone.
+                if not use_local:
+                    _refuse_missing_workspace_dirs(data, cur)
                 for key, value in data.items():
                     _ack_explicit_config_write(key, value)
                 return data
 
+            # ``--local`` writes the overlay (config.local.json), whose values win
+            # over config.json, instead of replacing the base. The overlay is a
+            # partial document and is not meta-stamped, the same as the keyed
+            # ``config set --local`` path above.
+            target = config_local_path() if use_local else config_path()
             try:
                 update_config_locked(
-                    config_path(),
+                    target,
                     mutate=_mutate_from_file,
                     on_corrupt="reset",
+                    stamp_meta=not use_local,
                 )
             except ConfigWriteRefused as e:
                 # Third writer behind the publish floor, same report as the keyed
@@ -324,12 +345,16 @@ def _run_config_cmd(args: argparse.Namespace) -> None:
                 sys.exit(1)
             sel().log_api_access(
                 caller="cli",
-                operation="config_set_file",
+                operation="config_set_local_file" if use_local else "config_set_file",
                 outcome="allowed",
                 source="cli",
                 resources=str(fp),
             )
-            print(f"✅ Config loaded from {file_path}")
+            dest = "config.local.json" if use_local else file_path
+            if use_local:
+                print(f"✅ Overlay loaded from {file_path} (saved to {dest})")
+            else:
+                print(f"✅ Config loaded from {file_path}")
             gateway_section = data.get("mcp_gateway")
             if isinstance(gateway_section, dict):
                 _warn_unapproved_share_names(_SHARE_LIST_KEY, gateway_section.get("stub_servers"))
