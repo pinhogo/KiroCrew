@@ -403,6 +403,55 @@ class TestNeutralizeEntryShape:
         assert missing == [], f"entries without command: {missing}"
 
 
+class TestAGrantResolvesWhatTheDefaultAgentMounts:
+    """A grant takes its launch spec from the servers the default agent mounts.
+
+    The rebuild merges the MCP page's store, registry installs and edition servers
+    over the global ``mcp.json`` into the default agent's spec, the store winning a
+    tie. A copied server that is muted (turned off, or a ``secret://`` reference
+    nothing resolves) is withheld, and so is another app's own server.
+    """
+
+    def test_a_grant_takes_the_mounted_spec_and_withholds_a_muted_one(self, tmp_path, monkeypatch):
+        from kiro_crew import agent as agent_mod
+        from kiro_crew.apps import bridges
+        from kiro_crew.mcp_provenance import DERIVED_KEY, WITHHELD_KEY
+
+        spec = tmp_path / "kirocrew.json"
+        mounted = {
+            "store-srv": {"command": "store-cmd", DERIVED_KEY: {"from": "kirocrew"}},
+            "both-srv": {"command": "store-cmd"},
+            "off-srv": {"command": "off-cmd", "disabled": True},
+            "vault-srv": {"command": "vault-cmd", "disabled": True, WITHHELD_KEY: True},
+            "other-app:srv": {"command": "other-cmd"},
+        }
+        spec.write_text(json.dumps({"mcpServers": mounted}), encoding="utf-8")
+        monkeypatch.setattr(bridges, "_mcp_json_path", lambda: spec)
+        monkeypatch.setattr(agent_mod, "_app_owned_mcp_keys", lambda: {"other-app:srv": True})
+        monkeypatch.setattr(
+            bridges,
+            "_global_mcp_specs",
+            lambda: {
+                "both-srv": {"command": "global-cmd"},
+                "off-srv": {"command": "off-cmd"},
+                "global-srv": {"command": "global-cmd"},
+                "global-off-srv": {"command": "global-cmd", "disabled": True},
+            },
+        )
+        names = [*mounted, "global-srv", "global-off-srv"]
+        out = bridges._apply_agent_mcp_policy(
+            {"name": "a", "tools": [], "mcpServers": {}},
+            "a",
+            {"agents": {"a": {"servers": {name: {} for name in names}}}},
+        )
+        assert out["mcpServers"] == {
+            "store-srv": {"command": "store-cmd"},
+            "both-srv": {"command": "store-cmd"},
+            "global-srv": {"command": "global-cmd"},
+        }
+        assert out["tools"] == ["@store-srv", "@both-srv", "@global-srv"]
+
+
 class TestDeclaredMcpToolsAreEnforced:
     """``permissions.mcpTools`` scopes an app agent's managed tools.
 

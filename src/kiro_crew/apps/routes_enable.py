@@ -479,7 +479,18 @@ async def handle_enable_app(request: web.Request) -> web.Response:
         sel().log_api_access(
             caller="dashboard", operation="app_enable", outcome="completed", resources=name
         )
-        return web.json_response(resp)
+
+    # After the lock: a gateway-managed app's MCP servers are in the agent spec, or will be
+    # once its backend's health watch writes an HTTP one, so end as an MCP page write does
+    # and a chat already open gets them too (app-kit-platform §1).
+    if resources == "gateway" and manifest.get("mcpServers"):
+        from kiro_crew.dashboard.handlers.template_server_request import _reach_sessions
+
+        try:
+            await _reach_sessions(request)
+        except Exception:  # noqa: BLE001 - the enable has committed
+            logger.warning("Open chats did not get %s's MCP change", name, exc_info=True)
+    return web.json_response(resp)
 
 
 async def handle_disable_app(request: web.Request) -> web.Response:
