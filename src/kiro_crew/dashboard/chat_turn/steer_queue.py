@@ -31,7 +31,11 @@ from kiro_crew.dashboard.chat_utils_injected_rows import (
     AUTOMATION_STEER_META,
     REQUEUED_STEER_ROW_MID_META,
 )
-from kiro_crew.dashboard.slot_queue_repository import RESTORED_QUEUE_KEY, RESTORED_SEND_CHOSEN_KEY
+from kiro_crew.dashboard.slot_queue_repository import (
+    RESTORED_QUEUE_KEY,
+    RESTORED_SEND_CHOSEN_KEY,
+    stamp_teammate_origin,
+)
 
 if TYPE_CHECKING:
     from kiro_crew.dashboard.chat_runner import (
@@ -444,6 +448,10 @@ def _requeue_unconsumed_steers(state: "DashboardState", slot: "_ChatSlot") -> No
             directive_channel_origin=_channel,
             directive_owner_origin=_owner and _requeue_user_origin,
         )
+        # A steer requeued from a turn a teammate's text reached stays the
+        # teammate's: the turn's mark, so it errs toward asking.
+        if getattr(slot, "_turn_teammate_sent", False) is True:
+            stamp_teammate_origin(slot, qid)
         from kiro_crew.dashboard.chat_handlers import crew_steer_requeued
 
         # A person's unread steer into a crew member is recorded when the drain

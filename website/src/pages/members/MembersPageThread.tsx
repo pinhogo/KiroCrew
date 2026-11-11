@@ -580,6 +580,10 @@ interface MembersPageThreadColumnProps {
   setPostCreateError: Dispatch<SetStateAction<PostCreateFailure | null>>
   postCreateDismissable: boolean
   createHeld: string | null
+  /** Import from file is the owner's (a relay teammate's view). */
+  importHeld: boolean
+  /** The owner check behind `importHeld` failed: said here while the roster is not. */
+  ownerCheckFailed: boolean
   threadOutcome: MemberThreadOutcome | undefined
   slotsLoaded: boolean
   active: MemberRosterRow | undefined
@@ -593,14 +597,14 @@ export function MembersPageThreadColumn({
   rosterRead, crewEditing, teamsRead, layout, profileCard, drawers, rosterView, thread, sidePanel, threadView,
   rosterSignals, profileFlight, navigation, teamView, navigate, location, activeName, setSearchParams,
   editingCrew, profile, gone, openCreate, openAdvanced, openQuick, threadColumnRef, postCreateError,
-  setPostCreateError, postCreateDismissable, createHeld, threadOutcome, slotsLoaded, active, leftCreateFailure,
+  setPostCreateError, postCreateDismissable, createHeld, importHeld, ownerCheckFailed, threadOutcome, slotsLoaded, active, leftCreateFailure,
   setLeftCreateFailure, retryPostCreate,
 }: MembersPageThreadColumnProps) {
   const { t } = useTranslation()
   const { rosterQuery, loaded, loadError, members } = rosterRead
   const { crewAgentsQuery, closeCrewEditor } = crewEditing
   const { teamsNoticeShown, dismissTeamsNotice, activeTeam, setTeamDialog } = teamsRead
-  const { rosterPinned, landingPending } = layout
+  const { rosterPinned, rosterShown, landingPending } = layout
   const { openRosterDrawer, rosterDrawerAvailable } = drawers
   const { activeRoster, crewmateIdentity, setStarError, starError } = rosterView
   const {
@@ -697,6 +701,20 @@ export function MembersPageThreadColumn({
             }}
           >
             {postCreateNotice}
+            {/* The owner check behind Import from file failed and an open chat hides
+                the roster that says so (a folded roster, or any open chat below md):
+                said here too, so the switcher's missing Import is explained. It steps
+                aside at md and up while the roster stands beside the chat. No agent
+                hand-off: it would navigate away from the chat's own draft. */}
+            {ownerCheckFailed && activeName && (
+              <div className={`${rosterShown ? 'md:hidden' : ''} px-4 py-2`} data-testid="member-thread-owner-check-error">
+                <ErrorNotice
+                  message={t('pages.membersPage.owner_check_failed')}
+                  variant="inline"
+                  className="min-w-0"
+                />
+              </div>
+            )}
             {leftCreateFailure && (
               /* No hand-off: the chat the user chose is mounted under this line
                  with its own draft, and a hand-off would navigate away from it. */
@@ -716,7 +734,7 @@ export function MembersPageThreadColumn({
                 team view too: a team can exist before its first crewmate does,
                 and the pane is the team's then. */}
             {!active && !activeTeam && !postCreateError && loaded && !loadError && hasNoCrewmates(members) && (
-              <CrewmateEmptyHero onCreate={openQuick} onAdvanced={openAdvanced} held={createHeld} onImport={() => setImporting(true)} />
+              <CrewmateEmptyHero onCreate={openQuick} onAdvanced={openAdvanced} held={createHeld} onImport={importHeld ? undefined : () => setImporting(true)} />
             )}
             {importing && <CrewmateImportDialog open onOpenChange={setImporting} />}
             {/* A failed roster read at md and up: the roster column shows its own
@@ -821,7 +839,7 @@ export function MembersPageThreadColumn({
                   thread={thread} threadView={threadView} rosterSignals={rosterSignals}
                   profileFlight={profileFlight} navigation={navigation} navigate={navigate} location={location}
                   setSearchParams={setSearchParams} profile={profile} openQuick={openQuick}
-                  createHeld={createHeld} active={active}
+                  createHeld={createHeld} importHeld={importHeld} active={active}
                 />
                 {/* Everything that can sit between the header and the pane —
                     notices, the greeting cards — stays in flow and is padded

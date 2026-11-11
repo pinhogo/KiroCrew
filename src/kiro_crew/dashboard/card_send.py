@@ -212,7 +212,8 @@ async def card_turn_delegation_middleware(request: web.Request, handler: Any) ->
         refusal = _refuse(
             403,
             "card_turn_delegation_refused",
-            "a turn started by a Dashboard card cannot hand work to another session or job",
+            "a turn started by a Dashboard card, or by a teammate on a Bot's thread, cannot hand "
+            "work to another session or job",
         )
         _audit(request, None, refusal)
         return refusal
@@ -233,7 +234,8 @@ def card_turn_cron_tool_refusal(
     refusal = _refuse(
         403,
         "card_turn_delegation_refused",
-        "a turn started by a Dashboard card cannot hand work to another session or job",
+        "a turn started by a Dashboard card, or by a teammate on a Bot's thread, cannot hand "
+        "work to another session or job",
     )
     _audit(request, None, refusal)
     return refusal
@@ -252,9 +254,18 @@ def latest_user_row_is_card(messages: list[dict]) -> bool:
 
 
 def card_turn_running(session_key: str) -> bool:
-    """Whether a Dashboard card's turn is running on *session_key* right now."""
+    """Whether a turn that takes no auto-approval is running on *session_key* right now.
+
+    A Dashboard card's turn, or a team Crew teammate's turn on a Bot's thread
+    (``approval_posture.teammate_turn_running``): neither may hand work to anything
+    that would take its approvals from elsewhere, so every card refusal holds both.
+    """
+    from kiro_crew.dashboard.approval_posture import teammate_turn_running
+
     with _lock:
-        return _running_card_turns.get(session_key, 0) > 0
+        if _running_card_turns.get(session_key, 0) > 0:
+            return True
+    return bool(session_key) and teammate_turn_running(session_key)
 
 
 #: Request key: whether the session the request names in ``X-Session-Key`` was running

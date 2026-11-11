@@ -46,6 +46,8 @@ if TYPE_CHECKING:
         _record_explicit_agent_selection,
         _redact_meta,
         _run_chat,
+        _send_binds_agent,
+        _send_writes_persona,
         _start_next_queued_turn,
         _wake_pending_reset_retry,
         app_slot_is_local_user_session,
@@ -136,20 +138,6 @@ def _sweep_stale_permissions(slot: "_ChatSlot") -> None:
             source="turn_start_sweep",
             resources=cls.get("request_id", ""),
         )
-
-
-def _send_binds_agent(agent: str, slot: Any) -> bool:
-    """Whether a ``POST /api/chat`` naming *agent* writes it onto *slot*."""
-    return bool(agent) and slot.agent in (None, "")
-
-
-def _send_writes_persona(body: dict) -> bool:
-    """Whether a ``POST /api/chat`` body writes the slot's persona fields.
-
-    ``color_theme`` carries the write; ``theme_consent`` and
-    ``theme_consent_sha`` are applied with it and never alone.
-    """
-    return "color_theme" in body
 
 
 async def _send_harness_command(message: str, state: DashboardState, slot: _ChatSlot) -> str:
@@ -791,6 +779,11 @@ async def _api_chat_send(request: web.Request) -> web.StreamResponse:
         )
     if slot.mode == "member":
         _member_cfg = await asyncio.to_thread(KiroCrewConfig.load)
+        # A team Crew teammate never runs on the owner's approvals (thread open's check).
+        from kiro_crew.dashboard.handlers.members import teammate_turn_refusal
+
+        if (_refused := teammate_turn_refusal(request, _member_cfg, slot)) is not None:
+            return _refused
         if slot.agent not in _member_cfg.agents:
             sel().log_api_access(
                 caller=request.remote or "",

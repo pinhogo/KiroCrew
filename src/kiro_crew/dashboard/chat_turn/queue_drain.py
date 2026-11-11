@@ -1568,14 +1568,21 @@ async def _start_next_queued_turn(
     # this turn's own call, so it ends with this dispatch (``turn_entry`` adopts
     # it only for a user-sent opener).
     _run_kwargs["_directive_owner_origin"] = directive_owner_origin
+    # A teammate's words in the batch make the turn the teammate's
+    # (TEAMMATE_ORIGIN_KEY), set from the entries rather than inherited from
+    # whoever triggered the drain, so it never runs on the owner's approvals.
+    from kiro_crew.dashboard.slot_queue_repository import TEAMMATE_ORIGIN_KEY
+    from kiro_crew.shared_crew.attribution import teammate_origin
     from kiro_crew.tracing import subagents as trace_subagents
 
+    _teammate = any(item.get(TEAMMATE_ORIGIN_KEY) is True for item in consumed)
     # The sub-agent results these entries deliver: the turn's trace joins that run's.
     with (
         independent_turn(),
         initiated_by(queued_initiator(consumed)),
         queued_work(consumed),
         trace_subagents.delivered(item.get("id") for item in consumed),
+        teammate_origin(_teammate),
     ):
         task = spawn_guarded_turn(
             state,
