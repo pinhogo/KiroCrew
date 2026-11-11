@@ -111,9 +111,12 @@ def test_local_review_and_generic_monitoring_keep_their_own_contracts():
     assert "detailed_merge_status" not in babysit
 
 
+# The worktree-dev and prepare-pr ceilings each carry +800 bytes for the
+# "## Own the codebase" mandate, which every run reads and which
+# test_ownership_mandate.py pins byte-identical across the dev skills.
 @pytest.mark.parametrize(
     ("name", "byte_ceiling"),
-    [("kirocrew-worktree-dev", 16000), ("babysit", 22000), ("kirocrew-prepare-pr", 56000)],
+    [("kirocrew-worktree-dev", 16800), ("babysit", 22000), ("kirocrew-prepare-pr", 56800)],
 )
 def test_slim_skills_do_not_regrow_duplicate_guidance_or_wire_model_ids(name, byte_ceiling):
     text = _text(SKILLS / name / "SKILL.md")

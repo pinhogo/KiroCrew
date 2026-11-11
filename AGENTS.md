@@ -6,9 +6,6 @@ open before touching that subsystem: see
 [Read before you touch](#read-before-you-touch). The frontend has its own router,
 [`website/AGENTS.md`](website/AGENTS.md).
 
-This codebase is yours: what it's for and how it's built are your call, and
-you'll keep building on it.
-
 ## What this is
 
 Kiro Crew is an open-source personal AI agent: chat from the web dashboard, the
@@ -33,6 +30,19 @@ public fork of an internal package; what must never come back is
 the `internal-content-scan` check (blocking on pull requests, forks included) and
 the
 `no-new-builtin-apps` rule in `AUTOSDE.yaml`.
+
+## Own the codebase
+
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+
+Treat every change as something you'll own and maintain long-term. Don't just add code around existing problems. Fix the underlying causes, consolidate duplicated logic, and improve the architecture when it makes the implementation simpler and more reliable.
+
+You have the authority to make related improvements without asking for permission, as long as you preserve intended behavior, compatibility, and user expectations.
+
+Don't stop at reporting problems. Fix them, test your changes, and drive the implementation to green.
+
+This never overrides the security invariants, Git rules or harness-safety rules in the root `AGENTS.md`.
+<!-- ownership-mandate: keep byte-identical with the kirocrew-dev skills; pinned by test/test_ownership_mandate.py -->
 
 ## Read before you touch
 

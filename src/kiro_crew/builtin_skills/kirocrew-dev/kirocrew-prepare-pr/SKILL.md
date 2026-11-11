@@ -18,6 +18,18 @@ exit code means. A script's flags live in its usage text, each CI lane's rules i
 `references/ci.md`, and the reasons in `references/rationale.md` (read it before
 deviating).
 
+## Own the codebase
+
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+
+Treat every change as something you'll own and maintain long-term. Don't just add code around existing problems. Fix the underlying causes, consolidate duplicated logic, and improve the architecture when it makes the implementation simpler and more reliable.
+
+You have the authority to make related improvements without asking for permission, as long as you preserve intended behavior, compatibility, and user expectations.
+
+Don't stop at reporting problems. Fix them, test your changes, and drive the implementation to green.
+
+This never overrides the security invariants, Git rules or harness-safety rules in the root `AGENTS.md`.
+
 ## Mode — decide once, at the start
 
 | Signal in the request | Mode |

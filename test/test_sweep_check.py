@@ -590,7 +590,8 @@ def test_agents_md_and_the_skill_point_at_the_sweep():
     assert "On the fifth fix only narrowing or deferral remain." in agents
     skill = (push_guard_helpers.PUSH_GUARD_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
     assert "`prepare-pr-sweep.md`" in skill
-    assert len(skill.encode("utf-8")) <= 56000
+    # Same ceiling as test_review_repair_routing_skill.py, ownership mandate included.
+    assert len(skill.encode("utf-8")) <= 56800
 
 
 def _fake_gh(

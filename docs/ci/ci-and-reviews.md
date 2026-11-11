@@ -3373,6 +3373,24 @@ rounds, and for candidates past five to be merged by shared root cause rather
 than dropped; the calibration note says "No findings." is the expected output for
 a typical PR.
 
+### Ownership mandate, for authors and reviewers
+
+Authors and reviewers work from one ownership mandate. Authors own the code
+long-term. They fix causes, consolidate duplicate logic and drive the change to
+green. The author copy is the `## Own the codebase` section in the root
+`AGENTS.md` and in the four Kiro-Crew-only `kirocrew-dev` skills
+(`kirocrew-prepare-pr`, `kirocrew-worktree-dev`, `writing-tests`,
+`dashboard-template`). The reviewer copy is the `OWN THE CODEBASE, IN BOTH
+DIRECTIONS` block. It tells a reviewer that a behavior-preserving related cleanup
+is in scope, never scope creep. It also says that a wrapper around a defect, a
+duplicate of existing logic, or a deferred defect is reported only under that
+lane's own bar. The block sits right after the deployment-neutral framing in
+every lane that carries that framing, and near the top of `security-scope.md`.
+Neither copy can widen a security fence or override `AGENTS.md`'s security
+invariants. `test/test_ownership_mandate.py` keeps each copy byte-identical across
+its consumers. The UX, GUI-user-test and fix-loop-analysis lanes do not judge code
+structure, so they do not carry the block.
+
 ### Asymmetric multi-pass is intentional
 
 BOTH line reviewers run **two real invocations**: a discovery pass that
