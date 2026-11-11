@@ -26,6 +26,7 @@ import { isUnknownPrincipal } from '../../api/sharedCrewUi'
 import { useResolvedElsewhere } from './useResolvedElsewhere'
 import { useRaisedBy } from '../../pages/chat/shared-crew/useRaisedBy'
 import { REJECT_APPROVAL_EVENT } from '../../pages/chat/composerFocus'
+import { refusalText } from '../../utils/toolGrantRefusal'
 
 /* The slot's approval chrome as state: the pending tool approval (its
    decision submit, the approval-mode discovery hint and nudge, the ghost
@@ -46,7 +47,7 @@ type AppDispatch = ReturnType<typeof useAppDispatch>
  *  `approvalIsUnattended`), so the Trust controls are withheld and only
  *  Allow once / Reject are offered. Kept in sync with the backend's
  *  `_BACKGROUND_APPROVAL_SOURCES` minus `autonudge`, which does run in-session. */
-const TRUST_DECISIONS = ['trust_command', 'trust_base', 'trust', 'trust_reads']
+const TRUST_DECISIONS = ['trust_command', 'trust_base', 'trust', 'trust_reads', 'always_allow_tool']
 
 export const UNATTENDED_APPROVAL_SOURCES = new Set(['cron', 'heartbeat', 'taskrunner'])
 
@@ -176,6 +177,11 @@ export function useToolApproval({ slotId, slotApprovalChrome, approvalMode, disp
    *  a card that could still take a session grant offered allow-once and reject
    *  alone. */
   const approvalTrustAllGrantable = approvalMeta?.trust_grantable === '1'
+  /** "Always allow this tool": the verified `@server/tool` the server says this
+   *  card may grant for good, or the code saying why not. Server facts only. */
+  const approvalAlwaysAllowRef = approvalMeta?.always_allow_tool_grantable === '1' && typeof approvalMeta?.always_allow_tool_ref === 'string'
+    ? approvalMeta.always_allow_tool_ref : ''
+  const approvalAlwaysAllowRefusal = refusalText(typeof approvalMeta?.always_allow_tool_refusal === 'string' ? approvalMeta.always_allow_tool_refusal : '')
   /** Server word that a reason typed with a rejection reaches the model (the
    *  backend reads one). Without it the reject menu asks for none. */
   const approvalTakesReason = approvalMeta?.rejection_reason_accepted === '1'
@@ -432,6 +438,7 @@ export function useToolApproval({ slotId, slotApprovalChrome, approvalMode, disp
     approvalNotice, setApprovalNotice, approvalNoticeKind, showApprovalError,
     approvalToolInput, approvalIsReadOnly, approvalFullCommand, approvalBaseCommand, approvalIsShell, approvalTakesReason, approvalMid,
     approvalTrustCommandGrantable, approvalTrustBaseGrantable, approvalTrustAllGrantable, approvalIsUnattended, approvalTrustGrantable,
+    approvalAlwaysAllowRef, approvalAlwaysAllowRefusal,
     approvalDenyRule, approvalDenyDetail, approvalDenyFamily, approvalDenyCommand,
     approvalLabelRaw, approvalToolCallId, approvalPurpose, approvalTs, approvalLabel, approvalRaisedBy, showGhost, showInChat, handleApprovalAction,
     approvalActionsRef,

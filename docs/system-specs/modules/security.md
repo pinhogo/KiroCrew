@@ -4607,6 +4607,31 @@ grant that read the title, the payload's `kind` or a command — the read-only
 kind allow-list, the `_is_read_only_tool` title heuristic, trust-reads —
 stays downgraded for such a child exactly as before.
 
+**"Always allow" for one MCP tool** (`dashboard/always_allow_tool.py`). Two dashboard
+surfaces write the same identity-keyed `hooks.auto_approve_tools` entry
+`@server/tool`: a per-tool toggle on Customize → Connections → MCP Servers
+(`/api/security/tool-grants`, `handlers/security_tool_grants.py`; GET lists the
+exact grants and a server's refusal code, POST adds, `/remove` drops) and the
+approval card's "Always allow this tool" row (`always_allow_tool` on
+`api_chat_slot_approve`). Both are owner-only: the routes call
+`require_owner_dashboard_request`, and the card decision additionally refuses an
+app token, a Crew Mode conductor's relay and any decide without the strict native
+target. The card grants only the `always_allow_tool_ref` the server stamped on the
+pending row (`card_fields`, from a verified `mcp_identity_trusted` pair that is not
+a shell, not unreadable, not a Connection's call, and for a low-fidelity child only
+with `child_mcp_identity_trusted`); the client's `pattern` must equal it and is
+never the grant. Neither surface grants a wildcard, a `kirocrew-*` server, a
+server a shipped app declares, or a server a Connection bridges
+(`server_is_crew_owned`), a server a `hooks.confirm_tools` pattern covers
+(`asks_every_time`), or while `config.local.json` sets the list (`set_elsewhere`);
+the toggle shows the reason and the card row is disabled with it. The grant is
+written through `update_config_locked` (endorsed bytes, refused while a hand edit
+is pending) and applied by the watcher before the response. It never skips the
+gate: it is answered by the `operator-grants` tier after every deny tier and
+governance, so it does not ask `may_skip_gate_now`, which governs static
+`allowedTools` entries only. KAS's own `allow_always` persistence and
+`permissions.yaml` are never written. Pinned by `test/test_always_allow_tool.py`.
+
 ### SEL Audit Logging (`sel.py`)
 
 See `docs/system-specs/modules/sel.md` for full spec. Every event carries a `source` stamped by `_infer_source`; that function's return vocabulary IS the set of audited surfaces and is published via `sel.audit_sources()` (consumed by the security-posture view, so the count is derived rather than restated here).
