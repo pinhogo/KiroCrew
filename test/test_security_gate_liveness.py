@@ -775,7 +775,9 @@ def _url_payload_command(n: int) -> str:
 #: Raised by one, from 35,533, for the ``update_next_start.json`` entry on the
 #: file-tool write fence: the update armed for the next start, which the sandbox
 #: seals read-only too.
-_PACKAGE_LINE_BUDGET = 35_534
+#: Raised by 3, from 35,534, for the rule id on an environment-credential refusal's
+#: diagnostic line in ``denied_rules``. No rule, pattern or match changed. Re-measured.
+_PACKAGE_LINE_BUDGET = 35_537
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
