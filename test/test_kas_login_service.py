@@ -8,6 +8,7 @@ scripted fake aiohttp session, so no test touches the real auth service.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
@@ -944,6 +945,39 @@ async def test_poll_idc_one_refusal_and_one_profile_signs_in(tmp_path, monkeypat
 
 _US_CPS = "https://management.us-east-1.kiro.dev/"
 _EU_CPS = "https://management.eu-central-1.kiro.dev/"
+
+
+@pytest.mark.parametrize(
+    "answer, message",
+    [
+        (_FakeResp(200, {"profiles": []}), "IdC login has no available Kiro profiles"),
+        (_FakeResp(403, {"message": "forbidden"}), "could not resolve IdC profile ARN"),
+    ],
+    ids=["no-profiles", "refused"],
+)
+@pytest.mark.asyncio
+async def test_poll_idc_failed_profile_lookup_logs_what_it_asked(
+    tmp_path, monkeypatch, caplog, answer, message
+):
+    """A failed lookup names the start URL, region and control planes in the log.
+
+    Without them a browser approved as another user, a wrong start URL and a wrong
+    region all leave the same line, and the log cannot say which one happened.
+    """
+    service, _ = _service(
+        tmp_path,
+        responses=[_FakeResp(200, {"accessToken": "at-log", "expiresIn": 3600}), answer, answer],
+    )
+    begin = await _begin_oidc(
+        service, monkeypatch, "idc", start_url="https://acme.awsapps.com/start", region="eu-west-1"
+    )
+    with caplog.at_level(logging.WARNING, logger="kiro_crew.auth.service"):
+        await service.poll_device(begin["login_id"])
+    [line] = [r.getMessage() for r in caplog.records if message in r.getMessage()]
+    assert "start URL https://acme.awsapps.com/start" in line
+    assert "region eu-west-1" in line
+    assert f"control planes asked: {_EU_CPS}, {_US_CPS}" in line
+    assert "at-log" not in line
 
 
 @pytest.mark.parametrize(

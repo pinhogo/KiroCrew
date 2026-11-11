@@ -175,6 +175,18 @@ class _PendingOidcLogin:
     transport_failures: int = 0
 
 
+def _idc_lookup_context(pending: _PendingOidcLogin) -> str:
+    """The start URL, region and control planes behind one IdC profile lookup, for logs.
+
+    All three are configuration, not credentials; the token never appears here.
+    """
+    hosts = ", ".join(control_plane.control_plane_urls(pending.region))
+    return (
+        f"start URL {pending.start_url or '(none)'}, region {pending.region}, "
+        f"control planes asked: {hosts}"
+    )
+
+
 # How long the loopback listener waits for the portal to redirect back. Long enough
 # for a full Google/GitHub sign-in with 2FA; short enough that a browser that can
 # never reach this machine's loopback (tunnel, tailnet, phone) degrades to the
@@ -646,11 +658,17 @@ class KasLoginService:
                     token.access_token, region=pending.region, session=session
                 )
             except control_plane.ControlPlaneError as err:
-                logger.warning("could not resolve IdC profile ARN: %s", err)
+                logger.warning(
+                    "could not resolve IdC profile ARN (%s): %s", _idc_lookup_context(pending), err
+                )
                 await self._forget(login_id)
                 return {"status": "error", "code": "profile_lookup_failed"}
             if not profiles:
-                logger.warning("IdC login has no available Kiro profiles")
+                # Name what was asked: the same message otherwise reads alike for a
+                # browser approved as another user, a wrong start URL and a wrong region.
+                logger.warning(
+                    "IdC login has no available Kiro profiles (%s)", _idc_lookup_context(pending)
+                )
                 await self._forget(login_id)
                 return {"status": "error", "code": "no_kiro_profile"}
             if len(profiles) > 1:
