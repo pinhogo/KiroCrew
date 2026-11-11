@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         _MANUAL_RESUME_MSG,
         _SESSION_START_REPEAT_REFUSAL_AT,
         _TURN_OPENING_INJECT_KINDS,
+        _WIRE_ONLY_ROLES,
         RESTORED_QUEUE_KEY,
         SESSION_START_FAILED_KIND,
         SYNTHETIC_RECOVERY_KIND,
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
         _slot_replaced_while_queued,
         _start_next_queued_turn,
         _subagents_attached_response,
+        attachment_meta,
         deny_app_slot_access,
         effective_session_key,
         is_stop_event_row,
@@ -377,6 +379,21 @@ async def continue_slot_turn(
                 "turn_not_failed",
             )
         resume = _MANUAL_RESUME_MSG if interrupted else _MANUAL_CONTINUE_MSG
+        resume_payload = ""
+        resend_attachments: dict[str, list[str]] = {}
+        unsent = unsent_user_row(slot.messages) if interrupted else None
+        if unsent is not None and (
+            not _is_own_composer_row(unsent) or _may_carry_channel_words(state, slot)
+        ):
+            unsent = None
+        if unsent is not None:
+            from kiro_crew.dashboard.chat_utils import RecoveryPayload
+
+            resume = unsent["content"]
+            resume_payload = RecoveryPayload.ORIGINAL
+            # The drain reads attachment lists off the queue entry, never off
+            # the row, so a resend without them would send the text alone.
+            resend_attachments = attachment_meta(unsent.get("meta"))
         if before_dispatch is not None:
             # Synchronous, under the lock, with no await between it and the
             # insert below: a caller whose authority was decided before the lock
@@ -403,7 +420,13 @@ async def continue_slot_turn(
             0,
             resume,
             kind=SYNTHETIC_RECOVERY_KIND,
-            meta={**containment_meta(state, slot), **(extra_meta or {}), **_card_meta},
+            payload=resume_payload,
+            meta={
+                **containment_meta(state, slot),
+                **(extra_meta or {}),
+                **resend_attachments,
+                **_card_meta,
+            },
             directive_user_origin=directive_user_origin and not _card_meta,
         )
 
@@ -477,6 +500,108 @@ def session_start_failure_streak(messages: list[dict]) -> int:
         if role in ("user", "assistant") and m.get("content") and not is_system_notice(role, meta):
             break
     return streak
+
+
+def unsent_user_row(messages: list[dict]) -> dict | None:
+    """The newest user row when the model never received it, else None.
+
+    A ``memory_unavailable`` error is raised while the turn's context is still
+    being prepared, before anything reaches the agent, so the agent's own
+    session never holds that message. The generic resume body asks the agent to
+    finish "the most recent request" in the conversation it has, which then
+    means the request before this one. Resume has to send the message itself.
+
+    Matches only a tail where every row after the newest user row is a
+    ``memory_unavailable`` error, the ``user_replay`` row an earlier Resume of
+    this kind left, a system notice, or an empty wire-only marker (every turn
+    ends with a ``done`` row that stays in the window but never reaches disk),
+    and the first such row is the error. A streamed ``chunk`` carries text and
+    still counts as output.
+    Nothing ran on that tail, so replaying the words cannot repeat a side
+    effect. Any other row (a reply, a tool call, a different failure) returns
+    None and Resume keeps its usual body.
+    """
+    saw_unsent = False
+    for m in reversed(messages):
+        role = m.get("role")
+        meta = m.get("meta")
+        meta = meta if isinstance(meta, dict) else {}
+        if is_system_notice(role, meta):
+            continue
+        if role in _WIRE_ONLY_ROLES and not m.get("content"):
+            continue
+        if role == "error" and meta.get("code") == "memory_unavailable":
+            saw_unsent = True
+            continue
+        if role == "inject" and meta.get("injectKind") == "user_replay" and saw_unsent:
+            saw_unsent = False
+            continue
+        if role == "user":
+            content = m.get("content")
+            if saw_unsent and isinstance(content, str) and content.strip():
+                return m
+        return None
+    return None
+
+
+def _is_own_composer_row(row: dict) -> bool:
+    """True when *row* is a person's own dashboard send, by its stamped provenance.
+
+    A resend queued by Continue runs as the caller's own human turn, so it may
+    repeat only words that already were one. The row must carry the human mark a
+    person's dashboard send writes and a person as its author, and none of the
+    marks a peer session, an app, a crew worker, a channel, a card or a restored
+    queue leaves on a user row. A channel row carries the human mark too, but its
+    author is Unknown. Anything not provably the person's own keeps the generic
+    resume body.
+    """
+    from kiro_crew.dashboard.card_send import CARD_ORIGIN_META_KEY
+    from kiro_crew.dashboard.chat_delivery import COMMANDS_OFF_META_KEY, TURN_ACTOR_META_KEY
+    from kiro_crew.dashboard.chat_title import RESTORED_TURN_META_KEY
+    from kiro_crew.dashboard.session_control_parts.delivery_containment import (
+        CHANNEL_RECIPIENT_META_KEY,
+        SEND_ORIGIN_META_KEY,
+    )
+    from kiro_crew.history_schema import HUMAN_TURN_META_KEY
+    from kiro_crew.shared_crew.attribution import is_person, message_author
+
+    meta = row.get("meta")
+    if not isinstance(meta, dict) or meta.get(HUMAN_TURN_META_KEY) is not True:
+        return False
+    if not is_person(message_author(meta)):
+        return False
+    foreign = (
+        "relay",
+        "slack_sender",
+        TURN_ACTOR_META_KEY,
+        COMMANDS_OFF_META_KEY,
+        CHANNEL_RECIPIENT_META_KEY,
+        SEND_ORIGIN_META_KEY,
+        CARD_ORIGIN_META_KEY,
+        RESTORED_TURN_META_KEY,
+    )
+    return not any(key in meta for key in foreign)
+
+
+def _may_carry_channel_words(state: DashboardState, slot: _ChatSlot) -> bool:
+    """True when a channel member may have typed *slot*'s newest user row.
+
+    A row does not record who typed it, and a resend queued by Continue runs as
+    the caller's own turn, without the channel origin, source channels or
+    commands-off mark the channel's turn carried. Any slot a channel can write
+    into therefore keeps the generic resume body, which repeats no one's words.
+    An unreadable mirror link counts as a channel.
+    """
+    # circular import: session_control imports this package's modules at module level.
+    from kiro_crew.dashboard.session_control import _has_channel_mirror
+
+    if getattr(slot, "linked_session_key", "") or getattr(slot, "_slack_linked", False):
+        return True
+    try:
+        return _has_channel_mirror(state, slot)
+    except Exception:
+        logger.debug("continue: channel-mirror probe failed (slot %s)", slot.key, exc_info=True)
+        return True
 
 
 def _is_stop_event(m: dict) -> bool:

@@ -144,11 +144,14 @@ from kiro_crew.dashboard.chat_api.conductor_close import (  # noqa: F401
 from kiro_crew.dashboard.chat_api.continue_turn import (  # noqa: F401
     SlotContinueRefusal,
     _is_interrupted,
+    _is_own_composer_row,
     _is_stop_event,
+    _may_carry_channel_words,
     api_chat_slot_continue,
     api_chat_slot_end_wait,
     continue_slot_turn,
     session_start_failure_streak,
+    unsent_user_row,
 )
 from kiro_crew.dashboard.chat_api.crew_steer import (  # noqa: F401
     _CREW_PERSON_STEER,
@@ -627,6 +630,7 @@ from kiro_crew.dashboard.snapshot_commit import close_in_flight  # noqa: F401
 from kiro_crew.dashboard.state import (  # noqa: F401
     _MAX_CONTEXT_PER_SOURCE,
     _MAX_DISMISSED_SOURCE_LINKS,
+    _WIRE_ONLY_ROLES,
     TURN_OPENING_INJECT_KINDS,
     DashboardState,
     _ChatSlot,
