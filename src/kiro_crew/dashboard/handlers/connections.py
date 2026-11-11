@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import re
 from dataclasses import dataclass
@@ -500,6 +501,23 @@ async def _start_cold_mint(
     return web.json_response({"ok": True, "slug": slug, "state": "minting", "token": token})
 
 
+def _mark_live_sessions_for_new_bridge(app: web.Application) -> None:
+    """After Crew's first grant for an owner server, live sessions re-project MCP.
+
+    The grant is what bridges that server (``crew_oauth._custom_slug``), so a
+    session started before it still holds the harness's own entry. Every live
+    provider that applies an MCP change at its next turn is marked; any other
+    picks the bridge up at its next start. Runs on the loop; never resets a session.
+    """
+    from kiro_crew.mcp_hot_reload import mark_reinjecting_providers
+
+    sessions = app["state"].sessions
+    mark_reinjecting_providers(list(sessions.active_providers()) + list(sessions.warm_providers()))
+    fence = getattr(sessions, "mark_mcp_config_changed", None)
+    if callable(fence):
+        fence()
+
+
 async def api_connections_mint(request: web.Request) -> web.Response:
     """POST /api/connections/mint — start minting a provider's approval URL.
 
@@ -515,9 +533,22 @@ async def api_connections_mint(request: web.Request) -> web.Response:
     if isinstance(configured, web.Response):
         return configured
     if configured is not None:
+        from kiro_crew.connections import crew_oauth
+
+        name = configured["slug"]
+        if await asyncio.to_thread(crew_oauth.signs_in_custom, configured["entry"]):
+            # ``dashboard.feature_previews.crew_oauth`` on a bridged chat backend:
+            # the gateway signs in to the owner's server itself and holds the
+            # grant under its name and url; the row the page polls is the same.
+            token = await crew_oauth.start_mint_row(
+                crew_oauth.custom_key(name, configured["mcp_url"]),
+                _open_project_dirs(request.app.get("state")),
+                configured,
+                functools.partial(_mark_live_sessions_for_new_bridge, request.app),
+            )
+            return web.json_response({"ok": True, "slug": name, "state": "minting", "token": token})
         # An owner-configured server has no pre-registered OAuth app to check
         # and no premint row to adopt, so it goes straight to the cold path.
-        name = configured["slug"]
         return await _start_cold_mint(
             name, configured["mcp_url"], f"server:{name}", configured["entry"]
         )
