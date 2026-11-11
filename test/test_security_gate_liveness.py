@@ -760,7 +760,60 @@ def _url_payload_command(n: int) -> str:
 #: the self-protection floor, its ssh self-target floor included, walks a carrier's
 #: quoted script that opens with an assignment whole, so the assignment resolves
 #: inside it. Deny-only. Re-measured.
-_PACKAGE_LINE_BUDGET = 35_373
+#: Raised by 134, to 35,445, for the ``self-protection-git-pager`` floor: a
+#: structural predicate refusing any git command that opens or configures a pager, its
+#: ungated-floor id, note and facade exports; a cheap git-absent gate plus an exception
+#: guard on the payload walk so a raising helper cannot escape ``is_denied``; and the
+#: package facade and ``argv_floor`` ``TYPE_CHECKING`` manifests restating
+#: ``_is_git_pager`` and the four pager helpers it forwards. Re-measured.
+#: Raised by 86 more, to 35,531, for the cross-review rework (TALOS Option A): the floor
+#: now parses ORIGINAL-case argv so ``-O`` (opens a pager) is told from ``-o`` (ordinary
+#: output) and a short-option cluster stops at an operand, and it refuses a pager route
+#: only when a program would actually run -- allowing an empty ``core.pager`` / ``GIT_PAGER``
+#: / ``PAGER``, a git-false ``pager.<cmd>``, and ``--no-pager`` / ``-P`` (never for
+#: ``grep -O``). Value-insensitivity is kept: any named program is still refused. Re-measured.
+#: Raised by 233 more, to 35,764, for the decider rework on the same floor: the arg scan
+#: now reads git's own grammar (git-global options before the subcommand, the subcommand's
+#: own grammar after -- so ``git grep -c`` / ``-e`` operands are not mis-read as git-global
+#: pager controls); ``cat`` joins the empty string as an allowed no-op pager value (owner
+#: ruling); and the floor steps over execution-prefix wrappers (``command`` / ``env`` /
+#: ``sudo`` / ``nice`` / ...), collects env a same-line ``export`` carries, refuses a
+#: ``git config core.pager <prog>`` writer, and widens the cheap gate so a ``git`` hidden
+#: behind an empty substitution still enters the walk. Re-measured.
+#: LOWERED by 49, to 35,715, for the First Principles review rework: the git-pager floor
+#: now REUSES ``argv_rules._program_args`` (the shared execution-prefix wrapper table,
+#: imported lazily since argv_floor_self is the base layer) instead of its own inline
+#: wrapper list, which closed a real bypass (`doas` / `pkexec` / ... before ``git grep
+#: -O`` were not caught by the shorter inline list); the git-global value set is a local
+#: mirror of ``argv_floor_git._GIT_ARG_FLAGS`` (the layer rule forbids importing it) with
+#: its two extra entries dropped and a test pinning the mirror. Re-measured.
+#: Raised by 94, to 35,809, for the GPT 6.1 / Opus 5.5 / Security Scope findings: the
+#: git-pager floor refuses the ``git config set`` grammar and a ``config`` writer
+#: behind a git global, takes command boundaries BEFORE dequoting (a quoted ``;`` / ``#``
+#: / ``(`` in an operand stays part of the command), evaluates ``-P`` / ``-p`` and
+#: repeated ``-c`` / env pagers last-wins, consumes the extra value-taking globals
+#: (``--attr-source`` / ``--config-env`` separate-token), and keeps a ``git config`` pager
+#: READ with a trailing redirect / ``||`` / pipe allowed. Re-measured.
+#: Re-measured to 35,872 after rebasing onto current main (7f7a473e2): main's own baseline
+#: moved under the pager-floor additions; no floor behaviour changed.
+#: Raised by 38, to 35,910, for the follow-up GPT 6.1 / Security Scope findings: a quoted
+#: ``&`` operand stays part of the command (the quote-aware pass takes no ``&`` boundary),
+#: a whole-frame resolved-token pass catches a variable-assembled program
+#: (``g=git; $g grep -O``) and a real background ``&`` split, and a core.pager / GIT_PAGER
+#: set to a TRUSTED absolute ``cat`` (``/usr/bin/cat`` / ``/bin/cat``) joins the no-op
+#: allowlist while an untrusted ``*/cat`` stays refused. Re-measured.
+#: Raised by 31, to 35,941, for the git-config ``set --value`` operand (consumed so the
+#: key/value after it is read) and the GIT_CONFIG env trio pairing KEY_n with VALUE_n so
+#: a no-op pin (``GIT_CONFIG_VALUE_n=cat`` / git-false) is allowed. As a liveness floor
+#: it tokenises each command segment once and stays linear in the command length; a
+#: program assembled across a separator is a constructed-command evasion left out of
+#: scope. Re-measured.
+#: Raised by 44, to 35,985, for a ``#`` line-comment stripper on the git-pager floor: a
+#: ``#`` at a word boundary outside quotes starts a comment the shell drops to end of
+#: line, so an annotated no-op (``# core.pager=less would hang; use cat`` then ``git -c
+#: core.pager=cat log``) and a trailing ``git grep foo # -O`` are allowed, while a quoted
+#: or escaped ``#`` still parses. Re-measured.
+_PACKAGE_LINE_BUDGET = 35_985
 
 #: Ceiling on any ONE file in the package. This is what the bound is really for --
 #: a package total says nothing about a single file growing back into a second
