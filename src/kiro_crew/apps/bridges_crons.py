@@ -24,7 +24,7 @@ from kiro_crew import cron as cron_seams
 from kiro_crew.apps.bridges_sources import _namespace, _registration_denied, _registration_source
 from kiro_crew.apps.cron_sdk import CronSDK
 from kiro_crew.apps.execution import shipped_builtin_app_root
-from kiro_crew.apps.manager import app_dir, list_apps
+from kiro_crew.apps.manager import INSTALLED_META_FILENAME, app_dir, list_apps
 from kiro_crew.apps.manifest import AppManifest
 from kiro_crew.atomic_write import atomic_write, read_bytes_with_retry
 from kiro_crew.cron import (
@@ -1133,7 +1133,41 @@ async def reconcile_app_crons_for_execution(cron_service: Any) -> list[str]:
             cron_owner_names.add(owner.removeprefix("app:"))
 
     disarmed: list[str] = []
-    for app_name in sorted(cron_owner_names - installed_names):
+    # An owner whose record is still on disk is installed, just unlisted (a damaged
+    # record is skipped by list_apps): never an orphan, so its jobs are kept while
+    # it is admitted. The fire-time gate refuses them while its enablement cannot
+    # be read.
+    candidates = sorted(cron_owner_names - installed_names)
+    recorded = await asyncio.to_thread(
+        lambda: {
+            n
+            for n in candidates
+            if Path(n).name == n
+            and not n.startswith(".")
+            and (app_dir(n) / INSTALLED_META_FILENAME).exists()
+        }
+    )
+    for app_name in candidates:
+        if app_name in recorded:
+            # Admission comes from trust config and built-in provenance, not from
+            # the damaged record, so it is still checked here: a denied owner's
+            # jobs are disarmed exactly as a listed denied app's are.
+            _, app_root = _registration_source(app_name)
+            if _registration_denied(app_name, action="cron_boot_restore", app_root=app_root):
+                removed = await disarm_app_crons_for_execution(app_name, cron_service)
+                if removed:
+                    disarmed.append(app_name)
+                    logger.warning(
+                        "Boot: disarmed %d persisted cron(s) for unlisted app %s",
+                        removed,
+                        app_name,
+                    )
+                continue
+            logger.warning(
+                "App %s: keeping its persisted crons; its record exists but could not be " "listed",
+                app_name,
+            )
+            continue
         reason = "orphaned app cron owner has no installed app"
         logger.warning(
             "App %s: denying persisted cron restore (cron_boot_restore): %s",
