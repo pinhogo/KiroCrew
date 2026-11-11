@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 
 from kiro_crew import platform_compat
-from kiro_crew.apps import credential_masks, protected_app_state
+from kiro_crew.apps import credential_masks, protected_app_state, protected_app_ui
 from kiro_crew.apps.host_exec_grants import revoke_host_exec
 from kiro_crew.apps.manager_builtins import (
     invalidate_orphan_cache,
@@ -479,6 +479,7 @@ def uninstall_app(name: str, *, keep_data: bool = True, retired_builtin: bool = 
         protected_app_state.set_owner_disabled(name, False)
     except (OSError, ValueError):
         logger.warning("could not clear an uninstalled app's disable record", exc_info=True)
+    protected_app_ui.forget(name)
     refresh_app_config_keys()
     logger.info("Uninstalled app %s (keep_data=%s)", name, keep_data)
 

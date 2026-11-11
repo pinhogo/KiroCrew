@@ -631,6 +631,8 @@ POST /api/apps/register
 ```
 
 The call is idempotent: registering again with a newer version updates the entry.
+The dashboard runs the UI scripts (`.js`, `.mjs`) that were in the app's folder at
+its last registration, so an app that changes its UI registers again to ship it.
 `resources` and `lifecycle` default to `app` when omitted; the gateway always
 records `origin` as `external` and ignores any `origin` in the body. Use this when the app has its own build or package system, needs
 runtime-dynamic agent configuration, or manages its own agent, skill, and MCP

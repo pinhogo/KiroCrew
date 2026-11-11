@@ -41,6 +41,9 @@ def ui_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for ext in sorted(app_routes._ALLOWED_EXTENSIONS):
         (ui / f"asset{ext}").write_bytes(f"bytes-for-{ext}".encode())
     (ui / "chunks" / "lazy.mjs").write_bytes(b"chunk-bytes")
+    # An app the gateway installed: the UI route serves its scripts from the copy
+    # taken of every installed app (``protected_app_ui``).
+    (root / APP / "installed.json").write_text('{"name": "demo-app"}', encoding="utf-8")
     monkeypatch.setattr(app_routes, "apps_dir", lambda: root)
     return ui
 
@@ -131,10 +134,15 @@ async def test_a_symlinked_ANCESTOR_is_refused(ui_root: Path, tmp_path: Path) ->
     """
     outside = tmp_path / "elsewhere"
     outside.mkdir()
+    (outside / "app.css").write_bytes(b"outside-bytes")
     (outside / "app.js").write_bytes(b"outside-bytes")
     make_dir_link(ui_root / "vendor", outside)
-    status, body = await _get(f"/apps/{APP}/ui/vendor/app.js")
+    status, body = await _get(f"/apps/{APP}/ui/vendor/app.css")
     assert status == 400
+    assert b"outside-bytes" not in body
+    # A script is served from the gateway's copy, which never follows a link.
+    status, body = await _get(f"/apps/{APP}/ui/vendor/app.js")
+    assert status == 404
     assert b"outside-bytes" not in body
 
 

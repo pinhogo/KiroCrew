@@ -471,6 +471,31 @@ async def handle_register_external(request: web.Request) -> web.Response:
             await asyncio.get_running_loop().run_in_executor(
                 subprocess_executor(), refresh_app_config_keys
             )
+            # The scripts the dashboard runs for this app are the ones in its folder
+            # now, at the owner's registration (``protected_app_ui``). Imported here
+            # so the routes facade, which serves this module's names, gains none.
+            from kiro_crew.apps import protected_app_ui
+            from kiro_crew.apps.manager import apps_dir
+
+            try:
+                await asyncio.get_running_loop().run_in_executor(
+                    subprocess_executor(),
+                    partial(protected_app_ui.record_folder, apps_dir(), name),
+                )
+            except (OSError, ValueError) as exc:
+                logger.warning("could not copy app %s's UI scripts", name, exc_info=True)
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "name": name,
+                        "code": "app_ui_copy_failed",
+                        "error": (
+                            f"registered {name}, but could not keep a copy of its UI "
+                            f"scripts ({exc}); free up space, then register it again"
+                        ),
+                    },
+                    status=500,
+                )
     if not result.ok:
         sel().log_api_access(
             caller="dashboard",
