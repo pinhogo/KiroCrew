@@ -1198,7 +1198,13 @@ class TurnDriver:
                     )
                     await self.provider.reject_tool(event.request_id)
                     continue
-                if _gate == "auto_approve":
+                from kiro_crew.mate_held_rules import held_for
+
+                # A held Bot limit (``mate_held_rules``): only a person approves it.
+                _held = await asyncio.to_thread(
+                    held_for, event, session_key=self.audit_session_key, agent=self.audit_agent
+                )
+                if _gate == "auto_approve" and not _held:
                     # The gate's hook granted this by NAME (the
                     # `auto_approve_tools` globs, or the read-only
                     # allowlist). Honour it only while each program name in
@@ -1269,7 +1275,9 @@ class TurnDriver:
                 #  - hook: auto_approve_subagent_spawn -> spawn_run
                 #  - per-session Trust / global YOLO (injected predicate)
                 _auto_reason = ""
-                if self.auto_approve_tool is not None and self.auto_approve_tool(event):
+                if _held:
+                    pass
+                elif self.auto_approve_tool is not None and self.auto_approve_tool(event):
                     _auto_reason = "hook_auto_approve"
                 elif self.auto_approve_session is not None and self.auto_approve_session():
                     _auto_reason = "session_trust"
@@ -1293,7 +1301,9 @@ class TurnDriver:
                 # Only render approve/deny buttons when there's a decider to
                 # await the click. Without one, _approve() denies by default,
                 # so posting buttons would leave the user with dead controls.
-                if self.approval_mode == APPROVAL_INTERACTIVE and self.decider is not None:
+                if (
+                    self.approval_mode == APPROVAL_INTERACTIVE or _held
+                ) and self.decider is not None:
                     # The prompt names the tool from the PERMISSION event's own
                     # title, and its purpose from the tool_call that shares the
                     # id. A renderer that instead remembers the last titled
@@ -1323,7 +1333,7 @@ class TurnDriver:
                             tool_name=_redact(_mcp_tool),
                         )
                     )
-                approved = await self._approve(event)
+                approved = await self._approve(event, held=_held)
                 if approved:
                     approval_sent = await self.provider.approve_tool(event.request_id)
                     permission_outcome = (
@@ -1562,10 +1572,19 @@ class TurnDriver:
         except Exception:
             logger.debug("host-deny steer notice failed; rejecting anyway", exc_info=True)
 
-    async def _approve(self, event: Any) -> bool:
-        """Apply the approval ladder to a permission-request event."""
+    async def _approve(self, event: Any, *, held: list[str] | None = None) -> bool:
+        """Apply the approval ladder to a permission-request event (*held*: a person decides)."""
         from kiro_crew.approval_mode_policy import session_mode_permitted
 
+        if held:
+            if self.decider is None:
+                return False
+            from kiro_crew import mate_held_rules
+
+            # Marked held, so a decider that would answer on its own (YOLO, an
+            # ``auto_approve_sources`` entry, slot trust) asks a person instead.
+            with mate_held_rules.held_call(held):
+                return bool(await self.decider(event))
         if self.approval_mode == APPROVAL_AUTO:
             return True
         # A session mode the ``permission_mode`` policy denies falls through to the

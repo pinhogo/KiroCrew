@@ -8655,7 +8655,9 @@
         "chat_stopped_refused_body": "O modelo se recusou a responder e o chat parou. Abra o chat para ver o motivo.",
         "chat_stopped_stalled_body": "O chat travou e não conseguiu se recuperar. Abra o chat para iniciar um novo.",
         "folder_agent_label_title": "Confira o agente padrão de uma pasta",
-        "folder_agent_label_body": "O agente padrão destas pastas tem o nome de um Bot, mas os novos chats nelas não são executados nesse Bot: {{folders}}. Para usar o Bot, escolha-o como agente padrão nas configurações da pasta."
+        "folder_agent_label_body": "O agente padrão destas pastas tem o nome de um Bot, mas os novos chats nelas não são executados nesse Bot: {{folders}}. Para usar o Bot, escolha-o como agente padrão nas configurações da pasta.",
+        "bot_limits_held_title": "Um Bot agora pergunta antes de algumas ações",
+        "bot_limits_held_body": "Alguns limites de {{name}} não puderam ser aplicados como estavam, então ele pergunta a você antes das ações que eles cobrem. Abra o Bot para revisar as permissões dele."
       },
       "notificationBanner": {
         "dismiss_notification": "Dispensar notificação",

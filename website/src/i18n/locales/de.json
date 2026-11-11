@@ -8449,7 +8449,9 @@
         "chat_stopped_refused_body": "Das Modell hat die Antwort verweigert, und der Chat wurde abgebrochen. Öffne den Chat, um den Grund zu sehen.",
         "chat_stopped_stalled_body": "Der Chat hing fest und konnte nicht wiederhergestellt werden. Öffne den Chat, um einen neuen zu starten.",
         "folder_agent_label_title": "Standard-Agent eines Ordners prüfen",
-        "folder_agent_label_body": "Der Standard-Agent dieser Ordner trägt den Namen eines Bots, aber neue Chats darin laufen nicht auf diesem Bot: {{folders}}. Um den Bot zu nutzen, wähle ihn in den Einstellungen des Ordners als Standard-Agent aus."
+        "folder_agent_label_body": "Der Standard-Agent dieser Ordner trägt den Namen eines Bots, aber neue Chats darin laufen nicht auf diesem Bot: {{folders}}. Um den Bot zu nutzen, wähle ihn in den Einstellungen des Ordners als Standard-Agent aus.",
+        "bot_limits_held_title": "Ein Bot fragt jetzt vor manchen Aktionen nach",
+        "bot_limits_held_body": "Einige Grenzen für {{name}} ließen sich nicht wie festgelegt anwenden. Deshalb fragt er dich vor den Aktionen, die sie betreffen. Öffne den Bot, um seine Berechtigungen zu prüfen."
       },
       "notificationBanner": {
         "dismiss_notification": "Benachrichtigung schließen",
