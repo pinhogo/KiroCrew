@@ -28,7 +28,7 @@ from kiro_crew.apps.manager_records import (
     InstalledApp,
     _approved_grants_after_manifest_change,
     _approved_grants_snapshot,
-    _declared_grant_entries,
+    _consented_grant_entries,
     _effective_approved_grants,
     _held_back_entries,
     _now_iso,
@@ -317,7 +317,7 @@ def register_external_app(
         # The first manifest of a registration that declared nothing, sent by this
         # owner route: approved as declared, as a first registration with it would be.
         # The sealed store, not the agent-writable app.json, says none came before.
-        approved_grants = _declared_grant_entries(new_permissions)
+        approved_grants = _consented_grant_entries(new_permissions)
     elif existing:
         approved_grants = _approved_grants_after_manifest_change(
             existing_approved=prior_grants,
@@ -325,7 +325,7 @@ def register_external_app(
             new_permissions=new_permissions,
         )
     else:
-        approved_grants = _declared_grant_entries(new_permissions)
+        approved_grants = _consented_grant_entries(new_permissions)
     widened_grants = bool(manifest_data) and any(
         _held_back_entries(approved_grants, new_permissions).values()
     )

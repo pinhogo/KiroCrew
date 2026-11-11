@@ -31,6 +31,7 @@ from kiro_crew.apps import credential_masks, protected_app_state
 from kiro_crew.apps.execution import APP_NAME_RE
 from kiro_crew.apps.host_exec_grants import revoke_host_exec
 from kiro_crew.apps.manifest import AppManifest, Permissions
+from kiro_crew.apps.manifest_sections import BOT_GRANT_FAMILY
 from kiro_crew.apps.point_grants import (
     explicit_only_grant_families,
     grant_source,
@@ -910,8 +911,14 @@ def _freeze_declared(
     if manifest is None:
         return recorded
     declared = _declared_grant_entries(grant_source(manifest))
+    # An explicit-only family is approved only by entries a stored set names, so a
+    # set that defers to the manifest approves nothing in it (``point_grants``).
     frozen = {
-        family: base[family] if family in base else declared[family]
+        family: (
+            base[family]
+            if family in base
+            else [] if family in _EXPLICIT_ONLY_FAMILIES else declared[family]
+        )
         for family in STAGED_GRANT_FAMILIES
     }
     try:
@@ -997,6 +1004,22 @@ def _declared_grant_entries(permissions: Any) -> dict[str, list[str]]:
             [e for e in entries if isinstance(e, str) and e] if isinstance(entries, list) else []
         )
     return declared
+
+
+#: Families an install or a first registration never approves on its own: the install
+#: prompt does not show them, so they wait for the owner on the app's page like an
+#: update's new entries. ``bots``: the owner decides which Bots an app reaches.
+_OWNER_APPROVED_FAMILIES = (BOT_GRANT_FAMILY,)
+
+
+def _consented_grant_entries(permissions: Any) -> dict[str, list[str]]:
+    """What an install or a first registration approves: the declared entries, less
+    every :data:`_OWNER_APPROVED_FAMILIES` family, which starts empty."""
+    declared = _declared_grant_entries(permissions)
+    return {
+        family: [] if family in _OWNER_APPROVED_FAMILIES else entries
+        for family, entries in declared.items()
+    }
 
 
 def _approved_grants_after_manifest_change(
