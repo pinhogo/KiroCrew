@@ -356,6 +356,9 @@ def test_linear_urls_normalize_to_one_ref(url) -> None:
         "https://linear.app/acme/issue/ENG-0",
         "https://linear.app:8443/acme/issue/ENG-77",
         "https://linear.app/acme/project/ENG-77",
+        "https://linear.app/acme//issue/ENG-77",
+        "https://linear.app/acme/./issue/ENG-77",
+        "https://linear.app//acme/issue/ENG-77",
     ],
 )
 def test_other_linear_urls_are_refused(url) -> None:

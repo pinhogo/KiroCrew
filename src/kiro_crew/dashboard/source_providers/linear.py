@@ -25,6 +25,7 @@ import logging
 import math
 import string
 from dataclasses import replace
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
@@ -278,11 +279,12 @@ def _same_workspace(issue_url: Any, workspace: str) -> bool:
     if not isinstance(issue_url, str):
         return False
     parsed = urlparse(issue_url)
-    segments = parsed.path.split("/")
+    parts = PurePosixPath(parsed.path).parts
     return (
         parsed.hostname == links.LINEAR_HOST
-        and len(segments) > 1
-        and segments[1].lower() == workspace
+        and len(parts) > 1
+        and parts[0] == "/"
+        and parts[1].lower() == workspace
     )
 
 
