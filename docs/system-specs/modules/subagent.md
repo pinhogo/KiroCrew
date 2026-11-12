@@ -3696,7 +3696,12 @@ Specified in [taskq.md](taskq.md); this section is the manager's side of it.
   the same call join the awaited set (`update_wait`). A parent that used
   `spawn_run` keeps running and keeps its slot. `taskq_settle` then calls
   `taskq_child_terminal`: the parent wakes on its LAST awaited child (each
-  parent re-admitted individually, no tree-wide burst); `on_child_failure`
+  parent re-admitted individually, no tree-wide burst). A child with no store
+  row (only a persistent run has one, so a temporary or incognito chat's
+  children have none) is not known to the ledger; the wake is then decided from
+  the parent's in-memory wait record and the manager's run records
+  (`_rowless_wait_is_over`), where an awaited id counts as ended only when its
+  record is held and done. `on_child_failure`
   (params, default `continue`) `fail_parent` fails the parent now
   (`reason=child_failed`) and cancels the remaining children, children first.
   A CANCELLED parent cascades to its children (`taskq_cancel_children_of`:

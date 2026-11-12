@@ -761,6 +761,33 @@ class _WaitsMixin(ManagerComponent):
         ):
             # Every child still awaited was released as deferred: the tool waits for none.
             self.request_resume(parent, reason=f"last awaited child {child.id} {state}")
+        elif outcome.parent_id is None and self._rowless_wait_is_over(parent, child):
+            # The child has no store row (a run that is not persistent writes
+            # none), so the ledger could not count it against the parent's wait.
+            self.request_resume(parent, reason=f"last awaited child {child.id} {state}")
+
+    def _rowless_wait_is_over(self, parent: Any, child: SubagentInfo) -> bool:
+        """Whether *child* was the last run *parent*'s children wait awaits.
+
+        Read from the parent's in-memory wait record and this manager's run
+        records, for a child the store holds no row for. An awaited id counts as
+        ended only when its record is here and done; one this manager does not
+        hold (still queued, or evicted) keeps the parent waiting.
+        """
+        from kiro_crew import taskq as _taskq
+
+        if parent is None or parent.done or not parent._slot_released:
+            return False
+        record = _taskq.WaitRecord.from_dict(parent._wait_record)
+        if record is None or record.state != _taskq.WAITING_CHILDREN:
+            return False
+        for awaited in record.resume_condition.ids:
+            if awaited == child.id or awaited in parent._deferred_released:
+                continue
+            run = self._manager._agents.get(awaited)
+            if run is None or not run.done:
+                return False
+        return True
 
     def _cancel_live_or_row(self, agent_id: str, *, reason: str) -> None:
         """Cancel a row this process runs through ``cancel``, any other through
