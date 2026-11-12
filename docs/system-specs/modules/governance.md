@@ -30,6 +30,15 @@ omitted name from the original conversation or parent session, the runner also
 checks that effective name against the parent's `capabilities.spawn` agent scope
 before provider allocation, using the same evaluator and app identity.
 
+When the parent is itself a sub-agent run started as a named agent, both checks
+name that agent (`_spawning_agents`), so a profile bound to it
+(`{"type": "task", "id": "<agent>"}`) decides `capabilities.spawn` ahead of the
+`subagent` surface profile. That is the profile the run's tool calls are judged
+by. A run with no agent name, an agent with no profile, or a parent record the
+manager no longer holds leaves the surface profile deciding. When a live
+continuation runs on the same key under another agent, every one of them must be
+permitted. The policy ceiling binds in every case.
+
 ## The four archetypes (one composition algebra each)
 
 Every governed control is exactly one of four shapes. The evaluator dispatches

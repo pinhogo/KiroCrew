@@ -281,6 +281,7 @@ from kiro_crew.subagent_parts.agent_policy import (  # noqa: F401
     _scan_parent_spawn_allowlists,
     _scope_spawn_allowlists,
     _ScopeAllowlists,
+    _spawning_agents,
     _surface_unresolved_parent_spec,
     _validate_agent,
     _validate_app_agent_ownership,

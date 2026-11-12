@@ -312,8 +312,43 @@ def _inherited_member_agent(selection_kind: str, template_id: str, project_dir: 
     return template_id
 
 
-def _vet_spawn_governance(parent_session_key: str, agent: str, app: str = "") -> str | None:
+def _spawning_agents(runs: Iterable[Any], parent_session_key: str) -> tuple[str, ...]:
+    """The agent names of the sub-agent runs spawning under *parent_session_key*.
+
+    Empty when the key names no sub-agent run this manager holds, or when none of
+    them was started as a named agent. The spawning run is the live run the key
+    names plus every live continuation of it, which has its own id and runs on the
+    first run's ``conversation_key``. With no live one, the run the key names
+    stands in. More than one name is possible, and a caller vets each.
+    """
+    prefix = "subagent:"
+    if not parent_session_key.startswith(prefix):
+        return ()
+    run_id = parent_session_key[len(prefix) :]
+    records = list(runs)
+    named = [a for a in records if a.id == run_id]
+    live = [
+        a
+        for a in records
+        if not a.done
+        and (
+            a.id == run_id
+            or (getattr(a, "conversation_key", "") or f"{prefix}{a.id}") == parent_session_key
+        )
+    ]
+    return tuple(dict.fromkeys(a.agent for a in (live or named) if a.agent))
+
+
+def _vet_spawn_governance(
+    parent_session_key: str, agent: str, app: str = "", parent_agent: str = ""
+) -> str | None:
     """Return a denial reason if governance forbids spawning, else None.
+
+    ``parent_agent`` is the agent the SPAWNING sub-agent run was started as. A
+    profile bound to that name (``{"type": "task", "id": parent_agent}``) is the
+    one that run's tool calls are judged by, so it is the one judged here, ahead
+    of the parent's surface profile. Empty, or a name with no profile, leaves the
+    surface profile deciding.
 
     ``app`` binds the calling app's OWN profile (precedence #1 in
     ``resolve_active_scope``): an app spawning through the SpawnSDK must be
@@ -335,7 +370,9 @@ def _vet_spawn_governance(parent_session_key: str, agent: str, app: str = "") ->
         from kiro_crew.platform.governance_profiles import governance_permits
 
         # Gate enabled?  (item ignored when no inner scope — checks ``enabled``.)
-        gate = governance_permits("capabilities.spawn", "", session_key=parent_session_key, app=app)
+        gate = governance_permits(
+            "capabilities.spawn", "", session_key=parent_session_key, agent=parent_agent, app=app
+        )
         if not getattr(gate, "permitted", True):
             return getattr(gate, "reason", "spawn capability disabled")
         # Agent-scope check (capabilities.spawn.scopes.agents).
@@ -344,6 +381,7 @@ def _vet_spawn_governance(parent_session_key: str, agent: str, app: str = "") ->
                 "capabilities.spawn",
                 f"agents:{agent}",
                 session_key=parent_session_key,
+                agent=parent_agent,
                 app=app,
             )
             if not getattr(scoped, "permitted", True):
